@@ -117,6 +117,7 @@ curl.exe http://localhost:8094/api/operations/summary
 - `GET /actuator/info`
 - `GET /actuator/metrics`
 - `GET /api/operations/summary`
+- `GET /api/runtime/status`
 - `GET /api/runtime-events/recent?limit=100`
 - `GET /api/runtime-events/correlation/{correlationId}`
 - `GET /api/runtime-events/entity/{entityId}`
@@ -193,6 +194,41 @@ curl.exe http://localhost:8094/api/operations/summary
 - `POST /api/simulations/profitability?count=100`
 - `POST /api/simulations/workday/run?date=YYYY-MM-DD`
 - `POST /api/simulations/day/run?date=YYYY-MM-DD`
+
+## Autonomous Runtime Work Loop
+
+local/demo 환경에서는 ArchiveOS Live Flow가 멈춰 보이지 않도록 제한된 속도의 synthetic runtime work loop를 실행할 수 있습니다.
+
+기본 설정:
+
+- `archive.runtime.autorun.enabled=true`
+- `archive.runtime.autorun.scheduler-enabled=true`
+- `archive.runtime.tick-interval=30s`
+- `archive.runtime.max-events-per-tick=10`
+- `archive.runtime.max-backlog-per-tick=50`
+
+tick은 작은 synthetic 주문 흐름을 진행합니다.
+
+- synthetic demand/order 생성
+- 주문 확정
+- synthetic payment capture
+- profitability assessment
+- Nexus/Ledger/ArchiveOS 대상 outbox 생성
+- 예산이 남으면 workday snapshot 생성
+
+안전장치:
+
+- 같은 tick bucket 중복 실행 방지
+- scheduler lock
+- tick당 work budget 제한
+- backlog threshold 초과 시 신규 주문 생성 중단
+- integration disabled 상태에서는 외부 write 없이 outbox에만 기록
+
+상태 확인:
+
+```powershell
+curl.exe http://localhost:8094/api/runtime/status
+```
 
 ## 주문 수익성 및 가격 정책 엔진
 

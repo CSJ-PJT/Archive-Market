@@ -44,6 +44,7 @@ import com.csj.archive.market.revenue.MarketEconomyService;
 import com.csj.archive.market.revenue.MarketProfitSnapshotRepository;
 import com.csj.archive.market.revenue.MarketRevenueEventRepository;
 import com.csj.archive.market.revenue.RevenueType;
+import com.csj.archive.market.runtime.RuntimeAutoRunService;
 import com.csj.archive.market.runtime.RuntimeEventService;
 import com.csj.archive.market.simulation.MarketSimulationService;
 import java.math.BigDecimal;
@@ -79,6 +80,10 @@ class ArchiveMarketIntegrationTest {
         registry.add("spring.datasource.username", postgres::getUsername);
         registry.add("spring.datasource.password", postgres::getPassword);
         registry.add("market.integration.enabled", () -> "false");
+        registry.add("archive.runtime.autorun.enabled", () -> "true");
+        registry.add("archive.runtime.autorun.scheduler-enabled", () -> "false");
+        registry.add("archive.runtime.max-events-per-tick", () -> "2");
+        registry.add("archive.runtime.max-backlog-per-tick", () -> "10000");
     }
 
     @Autowired ProductService productService;
@@ -91,6 +96,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired MarketInboxService inboxService;
     @Autowired OrderProfitabilityService profitabilityService;
     @Autowired MarketCapitalService capitalService;
+    @Autowired RuntimeAutoRunService runtimeAutoRunService;
     @Autowired RuntimeEventService runtimeEventService;
     @Autowired MarketOutboxPublisher outboxPublisher;
     @Autowired MarketOrderRepository orderRepository;
@@ -367,6 +373,36 @@ class ArchiveMarketIntegrationTest {
                 .andExpect(jsonPath("$.data.cashflow.availableCash").exists())
                 .andExpect(jsonPath("$.data.workforce.processingCapacity").exists())
                 .andExpect(jsonPath("$.data.productivity.productivityScore").exists());
+    }
+
+    @Test
+    void autonomousRuntimeWorkLoopProducesBoundedIdempotentWorkAndStatus() throws Exception {
+        long ordersBefore = orderRepository.count();
+        long outboxBefore = outboxRepository.count();
+
+        var firstTick = runtimeAutoRunService.runTick();
+        assertThat(firstTick.autoRunEnabled()).isTrue();
+        assertThat(firstTick.eventsProducedLastTick()).isBetween(1, 2);
+        assertThat(firstTick.lastWorkAt()).isNotNull();
+        assertThat(firstTick.lastEventAt()).isNotNull();
+        assertThat(orderRepository.count()).isGreaterThan(ordersBefore);
+        assertThat(outboxRepository.count()).isGreaterThan(outboxBefore);
+
+        long ordersAfterFirstTick = orderRepository.count();
+        var duplicateTick = runtimeAutoRunService.runTick();
+        assertThat(duplicateTick.eventsProducedLastTick()).isZero();
+        assertThat(orderRepository.count()).isEqualTo(ordersAfterFirstTick);
+
+        long ordersBeforeSummary = orderRepository.count();
+        mockMvc.perform(get("/api/operations/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.runtime.lastWorkAt").exists())
+                .andExpect(jsonPath("$.data.runtime.lastEventAt").exists());
+        mockMvc.perform(get("/api/runtime/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.lastWorkAt").exists())
+                .andExpect(jsonPath("$.data.lastEventAt").exists());
+        assertThat(orderRepository.count()).isEqualTo(ordersBeforeSummary);
     }
 
     private ExternalEventRequest externalEvent(String eventId, String idempotencyKey, int hopCount, int maxHop) {

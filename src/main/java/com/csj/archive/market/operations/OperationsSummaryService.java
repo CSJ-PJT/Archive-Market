@@ -8,6 +8,7 @@ import com.csj.archive.market.payment.PaymentStatus;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
 import com.csj.archive.market.revenue.MarketDailyCloseRepository;
 import com.csj.archive.market.revenue.MarketEconomyService;
+import com.csj.archive.market.runtime.RuntimeAutoRunService;
 import com.csj.archive.market.runtime.RuntimeEventService;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -24,12 +25,14 @@ public class OperationsSummaryService {
     private final OrderProfitabilityService profitabilityService;
     private final MarketCapitalService capitalService;
     private final RuntimeEventService runtimeEventService;
+    private final RuntimeAutoRunService runtimeAutoRunService;
     private final MarketPaymentRepository paymentRepository;
 
     public OperationsSummaryService(MarketEconomyService economyService, MarketOutboxService outboxService,
                                     MarketInboxService inboxService, MarketDailyCloseRepository dailyCloseRepository,
                                     OrderProfitabilityService profitabilityService, MarketCapitalService capitalService,
-                                    RuntimeEventService runtimeEventService, MarketPaymentRepository paymentRepository) {
+                                    RuntimeEventService runtimeEventService, RuntimeAutoRunService runtimeAutoRunService,
+                                    MarketPaymentRepository paymentRepository) {
         this.economyService = economyService;
         this.outboxService = outboxService;
         this.inboxService = inboxService;
@@ -37,6 +40,7 @@ public class OperationsSummaryService {
         this.profitabilityService = profitabilityService;
         this.capitalService = capitalService;
         this.runtimeEventService = runtimeEventService;
+        this.runtimeAutoRunService = runtimeAutoRunService;
         this.paymentRepository = paymentRepository;
     }
 
@@ -47,6 +51,7 @@ public class OperationsSummaryService {
         result.put("serviceRole", "Synthetic Commerce Backend");
         result.put("latestEventAt", runtimeEventService.latestEventAt().orElse(null));
         result.put("liveFlowAvailable", true);
+        result.put("runtime", runtimeAutoRunService.status());
         result.put("degradedReason", "NONE");
         result.put("economy", economyAliases(result.get("economy")));
         result.put("payments", Map.of("captured", paymentRepository.countByPaymentStatus(PaymentStatus.CAPTURED)));

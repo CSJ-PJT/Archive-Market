@@ -10,6 +10,7 @@ Check:
 
 ```powershell
 curl.exe http://localhost:8094/actuator/health
+curl.exe http://localhost:8094/api/runtime/status
 curl.exe http://localhost:8094/api/outbox/summary
 curl.exe http://localhost:8094/api/operations/summary
 curl.exe http://localhost:8094/api/market-economy/summary
@@ -48,3 +49,36 @@ curl.exe http://localhost:8094/api/market-economy/summary
 ```
 
 ArchiveOS should isolate Market as `DEGRADED` only when these read-only summary APIs fail. A Market summary failure must not block Nexus, Logistics, or Ledger collection.
+
+## Autonomous Runtime Work Loop
+
+Archive-Market can run a bounded synthetic runtime loop in local/demo environments so ArchiveOS Live Flow continues to receive fresh runtime events while the service is UP.
+
+Configuration:
+
+```yaml
+archive:
+  runtime:
+    autorun:
+      enabled: true
+      scheduler-enabled: true
+    tick-interval: 30s
+    max-events-per-tick: 10
+    max-backlog-per-tick: 50
+```
+
+Runtime status:
+
+```powershell
+curl.exe http://localhost:8094/api/runtime/status
+```
+
+Safety rules:
+
+- no real customer, payment, financial, or employee data
+- one scheduler lock per JVM
+- duplicate tick bucket does not create additional work
+- tick work is bounded by `max-events-per-tick`
+- order creation stops when backlog exceeds `max-backlog-per-tick`
+- external writes still follow integration enabled / dry-run behavior
+- summary GET APIs remain read-only

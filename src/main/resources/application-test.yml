@@ -8,3 +8,12 @@ spring:
 market:
   integration:
     enabled: false
+
+archive:
+  runtime:
+    autorun:
+      enabled: true
+      scheduler-enabled: false
+    tick-interval: 30s
+    max-events-per-tick: 2
+    max-backlog-per-tick: 50
