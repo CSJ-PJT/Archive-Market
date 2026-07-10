@@ -3,11 +3,13 @@ package com.csj.archive.market;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.csj.archive.market.capital.MarketCapitalService;
 import com.csj.archive.market.capital.MarketWorkdaySnapshotRepository;
+import com.csj.archive.market.capital.MarketWorkforceAllocationRepository;
 import com.csj.archive.market.capital.WorkforceAllocationRequest;
 import com.csj.archive.market.capital.WorkforceRole;
 import com.csj.archive.market.claim.ReturnClaimService;
@@ -101,6 +103,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired OrderProfitabilityAssessmentRepository assessmentRepository;
     @Autowired ProfitabilityCostComponentAdjustmentRepository costAdjustmentRepository;
     @Autowired MarketWorkdaySnapshotRepository workdaySnapshotRepository;
+    @Autowired MarketWorkforceAllocationRepository workforceAllocationRepository;
     @Autowired MockMvc mockMvc;
 
     @Test
@@ -195,6 +198,11 @@ class ArchiveMarketIntegrationTest {
                 .extracting("eventType")
                 .contains("CUSTOMER_DEMAND_CREATED", "MARKET_ORDER_PLACED", "PAYMENT_CAPTURED",
                         "ORDER_PROFITABILITY_EVALUATED");
+
+        mockMvc.perform(post("/api/simulations/orders").param("count", "10"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/operations/summary")).andExpect(status().isOk());
+        mockMvc.perform(get("/api/market-economy/summary")).andExpect(status().isOk());
     }
 
     @Test
@@ -281,6 +289,29 @@ class ArchiveMarketIntegrationTest {
     @Test
     void workingCapitalWorkforceProductivitySummariesAndWorkdaySimulation() throws Exception {
         simulationService.orders(5);
+        capitalService.seedDefaults();
+        capitalService.seedDefaults();
+        assertThat(workforceAllocationRepository.countByWorkdayId(MarketCapitalService.DEFAULT_WORKDAY_ID))
+                .isEqualTo(WorkforceRole.values().length);
+
+        WorkforceAllocationRequest.RoleAllocation oneOperator =
+                new WorkforceAllocationRequest.RoleAllocation(1, 1, BigDecimal.ZERO, BigDecimal.ONE);
+        capitalService.allocate(new WorkforceAllocationRequest("WORKDAY-A",
+                Map.of(WorkforceRole.ORDER_OPERATOR, oneOperator)));
+        capitalService.allocate(new WorkforceAllocationRequest("WORKDAY-A",
+                Map.of(WorkforceRole.ORDER_OPERATOR, new WorkforceAllocationRequest.RoleAllocation(2, 2, BigDecimal.ZERO, BigDecimal.ONE))));
+        capitalService.allocate(new WorkforceAllocationRequest("WORKDAY-B",
+                Map.of(WorkforceRole.ORDER_OPERATOR, oneOperator)));
+        assertThat(workforceAllocationRepository.countByWorkdayId("WORKDAY-A")).isEqualTo(1);
+        assertThat(workforceAllocationRepository.countByWorkdayId("WORKDAY-B")).isEqualTo(1);
+
+        long beforeSummaryCount = workforceAllocationRepository.count();
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(get("/api/operations/summary")).andExpect(status().isOk());
+            mockMvc.perform(get("/api/market-economy/summary")).andExpect(status().isOk());
+        }
+        assertThat(workforceAllocationRepository.count()).isEqualTo(beforeSummaryCount);
+
         EnumMap<WorkforceRole, WorkforceAllocationRequest.RoleAllocation> allocations = new EnumMap<>(WorkforceRole.class);
         for (WorkforceRole role : WorkforceRole.values()) {
             allocations.put(role, new WorkforceAllocationRequest.RoleAllocation(0, 0, BigDecimal.ZERO, BigDecimal.ZERO));

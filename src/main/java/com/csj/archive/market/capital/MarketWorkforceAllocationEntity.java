@@ -21,8 +21,11 @@ public class MarketWorkforceAllocationEntity {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "workday_id", nullable = false)
+    private String workdayId;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "workforce_role", nullable = false, unique = true)
+    @Column(name = "workforce_role", nullable = false)
     private WorkforceRole workforceRole;
 
     @Column(name = "headcount", nullable = false)
@@ -53,6 +56,12 @@ public class MarketWorkforceAllocationEntity {
 
     public MarketWorkforceAllocationEntity(WorkforceRole workforceRole, int headcount, int capacityPerDay,
                                            BigDecimal wagePerDay, BigDecimal productivityScore, boolean enabled) {
+        this("DEFAULT", workforceRole, headcount, capacityPerDay, wagePerDay, productivityScore, enabled);
+    }
+
+    public MarketWorkforceAllocationEntity(String workdayId, WorkforceRole workforceRole, int headcount, int capacityPerDay,
+                                           BigDecimal wagePerDay, BigDecimal productivityScore, boolean enabled) {
+        this.workdayId = workdayId;
         this.workforceRole = workforceRole;
         this.headcount = headcount;
         this.capacityPerDay = capacityPerDay;
@@ -67,6 +76,10 @@ public class MarketWorkforceAllocationEntity {
         this.wagePerDay = wagePerDay;
         this.productivityScore = productivityScore;
         this.enabled = true;
+    }
+
+    public String getWorkdayId() {
+        return workdayId;
     }
 
     public WorkforceRole getWorkforceRole() {

@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class MarketCapitalService {
 
+    public static final String DEFAULT_WORKDAY_ID = "DEFAULT";
     private static final BigDecimal SYNTHETIC_OPENING_CASH = BigDecimal.valueOf(50_000_000);
 
     private final MarketWorkforceAllocationRepository workforceRepository;
@@ -43,9 +44,8 @@ public class MarketCapitalService {
         this.profitabilityService = profitabilityService;
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Map<String, Object> cashflowSummary() {
-        seedDefaults();
         BigDecimal revenue = revenueRepository.totalRevenue();
         BigDecimal cost = costRepository.totalCost();
         BigDecimal payroll = payrollCost();
@@ -73,10 +73,9 @@ public class MarketCapitalService {
                 "currency", "SYNTHETIC_KRW"));
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Map<String, Object> workforceSummary() {
-        ensureSeededReadOnlySafe();
-        List<MarketWorkforceAllocationEntity> allocations = workforceRepository.findByEnabledTrueOrderByWorkforceRoleAsc();
+        List<MarketWorkforceAllocationEntity> allocations = activeAllocations(DEFAULT_WORKDAY_ID);
         long orderCount = orderRepository.count();
         long capacity = processingCapacity(allocations);
         long backlog = Math.max(0, orderCount - capacity);
@@ -94,7 +93,7 @@ public class MarketCapitalService {
                 "capacityUtilization", percentage(usedCapacity, Math.max(1, capacity))));
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Map<String, Object> capacitySummary() {
         Map<String, Object> workforce = workforceSummary();
         return ordered(Map.of(
@@ -107,10 +106,9 @@ public class MarketCapitalService {
                 "capacityUtilization", workforce.get("capacityUtilization")));
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Map<String, Object> productivitySummary() {
-        ensureSeededReadOnlySafe();
-        List<MarketWorkforceAllocationEntity> allocations = workforceRepository.findByEnabledTrueOrderByWorkforceRoleAsc();
+        List<MarketWorkforceAllocationEntity> allocations = activeAllocations(DEFAULT_WORKDAY_ID);
         long orderCount = orderRepository.count();
         long capacity = processingCapacity(allocations);
         long backlog = Math.max(0, orderCount - capacity);
@@ -132,12 +130,12 @@ public class MarketCapitalService {
 
     @Transactional
     public Map<String, Object> allocate(WorkforceAllocationRequest request) {
-        seedDefaults();
+        String workdayId = normalizeWorkdayId(request == null ? null : request.workdayId());
         if (request != null && request.allocations() != null) {
             for (Map.Entry<WorkforceRole, WorkforceAllocationRequest.RoleAllocation> entry : request.allocations().entrySet()) {
                 WorkforceAllocationRequest.RoleAllocation value = entry.getValue();
-                MarketWorkforceAllocationEntity allocation = workforceRepository.findByWorkforceRole(entry.getKey())
-                        .orElseGet(() -> defaultAllocation(entry.getKey()));
+                MarketWorkforceAllocationEntity allocation = workforceRepository.findByWorkdayIdAndWorkforceRole(workdayId, entry.getKey())
+                        .orElseGet(() -> defaultAllocation(workdayId, entry.getKey()));
                 allocation.allocate(
                         value.headcount() == null ? allocation.getHeadcount() : value.headcount(),
                         value.capacityPerDay() == null ? allocation.getCapacityPerDay() : value.capacityPerDay(),
@@ -151,7 +149,6 @@ public class MarketCapitalService {
 
     @Transactional
     public MarketWorkdaySnapshotEntity runWorkday(LocalDate date) {
-        seedDefaults();
         Map<String, Object> cashflow = cashflowSummary();
         Map<String, Object> workforce = workforceSummary();
         Map<String, Object> productivity = productivitySummary();
@@ -170,21 +167,28 @@ public class MarketCapitalService {
         return snapshotRepository.save(snapshot);
     }
 
-    @Transactional
+    @Transactional(readOnly = true)
     public Map<String, Object> combinedSummary() {
-        return ordered(Map.of(
-                "cashflow", cashflowSummary(),
-                "workforce", workforceSummary(),
-                "productivity", productivitySummary(),
-                "lastWorkday", snapshotRepository.findTopByOrderByWorkDateDescCreatedAtDesc().orElse(null)));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("cashflow", cashflowSummary());
+        result.put("workforce", workforceSummary());
+        result.put("productivity", productivitySummary());
+        result.put("lastWorkday", snapshotRepository.findTopByOrderByWorkDateDescCreatedAtDesc().orElse(null));
+        return result;
     }
 
     @Transactional
     public synchronized void seedDefaults() {
+        seedDefaults(DEFAULT_WORKDAY_ID);
+    }
+
+    @Transactional
+    public synchronized void seedDefaults(String workdayId) {
+        String normalizedWorkdayId = normalizeWorkdayId(workdayId);
         for (WorkforceRole role : WorkforceRole.values()) {
-            if (workforceRepository.findByWorkforceRole(role).isEmpty()) {
+            if (workforceRepository.findByWorkdayIdAndWorkforceRole(normalizedWorkdayId, role).isEmpty()) {
                 try {
-                    workforceRepository.save(defaultAllocation(role));
+                    workforceRepository.save(defaultAllocation(normalizedWorkdayId, role));
                 } catch (DataIntegrityViolationException ignored) {
                     // Another request seeded the same synthetic role concurrently.
                 }
@@ -192,26 +196,28 @@ public class MarketCapitalService {
         }
     }
 
-    private void ensureSeededReadOnlySafe() {
-        if (workforceRepository.count() == 0) {
-            seedDefaults();
-        }
+    private MarketWorkforceAllocationEntity defaultAllocation(WorkforceRole role) {
+        return defaultAllocation(DEFAULT_WORKDAY_ID, role);
     }
 
-    private MarketWorkforceAllocationEntity defaultAllocation(WorkforceRole role) {
+    private MarketWorkforceAllocationEntity defaultAllocation(String workdayId, WorkforceRole role) {
         return switch (role) {
-            case ORDER_OPERATOR -> allocation(role, 4, 45, "120000", "0.86");
-            case PRICING_ANALYST -> allocation(role, 2, 28, "180000", "0.82");
-            case CUSTOMER_SUPPORT -> allocation(role, 3, 35, "110000", "0.78");
-            case CLAIM_HANDLER -> allocation(role, 2, 22, "130000", "0.76");
-            case MARKET_MANAGER -> allocation(role, 1, 60, "220000", "0.84");
+            case ORDER_OPERATOR -> allocation(workdayId, role, 4, 45, "120000", "0.86");
+            case PRICING_ANALYST -> allocation(workdayId, role, 2, 28, "180000", "0.82");
+            case CUSTOMER_SUPPORT -> allocation(workdayId, role, 3, 35, "110000", "0.78");
+            case CLAIM_HANDLER -> allocation(workdayId, role, 2, 22, "130000", "0.76");
+            case MARKET_MANAGER -> allocation(workdayId, role, 1, 60, "220000", "0.84");
         };
     }
 
-    private MarketWorkforceAllocationEntity allocation(WorkforceRole role, int headcount, int capacityPerDay,
+    private MarketWorkforceAllocationEntity allocation(String workdayId, WorkforceRole role, int headcount, int capacityPerDay,
                                                        String wage, String productivity) {
-        return new MarketWorkforceAllocationEntity(role, headcount, capacityPerDay,
+        return new MarketWorkforceAllocationEntity(workdayId, role, headcount, capacityPerDay,
                 new BigDecimal(wage), new BigDecimal(productivity), true);
+    }
+
+    private List<MarketWorkforceAllocationEntity> activeAllocations(String workdayId) {
+        return workforceRepository.findByWorkdayIdAndEnabledTrueOrderByWorkforceRoleAsc(normalizeWorkdayId(workdayId));
     }
 
     private long processingCapacity(List<MarketWorkforceAllocationEntity> allocations) {
@@ -222,7 +228,7 @@ public class MarketCapitalService {
     }
 
     private BigDecimal payrollCost() {
-        return payrollCost(workforceRepository.findByEnabledTrueOrderByWorkforceRoleAsc());
+        return payrollCost(activeAllocations(DEFAULT_WORKDAY_ID));
     }
 
     private BigDecimal payrollCost(List<MarketWorkforceAllocationEntity> allocations) {
@@ -279,5 +285,9 @@ public class MarketCapitalService {
 
     private Map<String, Object> ordered(Map<String, Object> source) {
         return new LinkedHashMap<>(source);
+    }
+
+    private String normalizeWorkdayId(String workdayId) {
+        return workdayId == null || workdayId.isBlank() ? DEFAULT_WORKDAY_ID : workdayId;
     }
 }

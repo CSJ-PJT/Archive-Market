@@ -5,7 +5,9 @@ import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface MarketWorkforceAllocationRepository extends JpaRepository<MarketWorkforceAllocationEntity, Long> {
-    Optional<MarketWorkforceAllocationEntity> findByWorkforceRole(WorkforceRole workforceRole);
+    Optional<MarketWorkforceAllocationEntity> findByWorkdayIdAndWorkforceRole(String workdayId, WorkforceRole workforceRole);
 
-    List<MarketWorkforceAllocationEntity> findByEnabledTrueOrderByWorkforceRoleAsc();
+    List<MarketWorkforceAllocationEntity> findByWorkdayIdAndEnabledTrueOrderByWorkforceRoleAsc(String workdayId);
+
+    long countByWorkdayId(String workdayId);
 }

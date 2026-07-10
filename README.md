@@ -279,6 +279,10 @@ Synthetic workforce 역할:
 
 각 역할은 `capacityPerDay`, `wagePerDay`, `productivityScore`를 가집니다. 주문 수가 workforce capacity를 초과하면 backlog로 계산하고, backlog가 커질수록 cancellationRate, claimRate, delayRisk가 증가합니다.
 
+Summary GET API는 read-only입니다. `GET /api/operations/summary`, `GET /api/market-economy/summary`, `GET /api/market-workforce/summary`, `GET /api/market-cashflow/summary`, `GET /api/market-productivity/summary`는 workforce allocation seed/insert를 수행하지 않고, 데이터가 없으면 0 또는 empty summary를 반환합니다.
+
+Workforce allocation은 `workdayId + workforceRole` 기준으로 idempotent하게 upsert됩니다. `market_workforce_allocation_workforce_role_key` duplicate 오류가 보이면 V7 migration 적용 여부를 확인해야 합니다.
+
 Productivity summary는 다음 의사결정 힌트를 제공합니다.
 
 - 인력 증원
@@ -343,6 +347,7 @@ ArchiveOS review 이벤트:
 - `V4__add_profitability_pricing_engine.sql`: pricing policy, profitability assessment, risk profile, price recommendation
 - `V5__add_profitability_cost_component_adjustments.sql`: 실측 비용 component adjustment
 - `V6__add_working_capital_workforce_model.sql`: workforce allocation, workday snapshot
+- `V7__fix_workforce_allocation_idempotency.sql`: workforce role 단독 unique 제거, `workday_id + workforce_role` 복합 unique 적용
 
 ## Smoke Test
 
@@ -375,6 +380,7 @@ docker compose config --quiet
 - `docs/event-contract.md`
 - `docs/runtime-event-contract.md`
 - `docs/market-runtime-event-contract.md`
+- `docs/market-workforce-model.md`
 - `docs/operations-summary-contract.md`
 - `docs/archiveos-live-flow-contract.md`
 - `docs/market-economy-model.md`
