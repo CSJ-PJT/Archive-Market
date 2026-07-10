@@ -137,7 +137,9 @@ class ArchiveMarketIntegrationTest {
         assertThat(rejected.getStatus()).isEqualTo(MarketInboxStatus.REJECTED);
 
         var snapshot = economyService.dailyClose(LocalDate.of(2026, 7, 10));
-        assertThat(snapshotRepository.findAll()).contains(snapshot);
+        assertThat(snapshotRepository.findAll())
+                .extracting("snapshotId")
+                .contains(snapshot.getSnapshotId());
         assertThat(snapshot.getProfitAmount()).isNotNull();
 
         outboxPublisher.publishPending();
