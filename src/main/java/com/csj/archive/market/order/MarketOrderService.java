@@ -12,6 +12,7 @@ import com.csj.archive.market.product.PricingPolicy;
 import com.csj.archive.market.product.ProductEntity;
 import com.csj.archive.market.product.ProductRepository;
 import com.csj.archive.market.product.ProductService;
+import com.csj.archive.market.profitability.OrderProfitabilityService;
 import com.csj.archive.market.revenue.CostType;
 import com.csj.archive.market.revenue.MarketEconomyService;
 import com.csj.archive.market.revenue.RevenueType;
@@ -34,12 +35,14 @@ public class MarketOrderService {
     private final ProductService productService;
     private final PricingPolicy pricingPolicy;
     private final MarketEconomyService economyService;
+    private final OrderProfitabilityService profitabilityService;
     private final AuditLogService auditLogService;
 
     public MarketOrderService(MarketOrderRepository orderRepository, CustomerRepository customerRepository,
                               ProductRepository productRepository, CustomerService customerService,
                               ProductService productService, PricingPolicy pricingPolicy,
-                              MarketEconomyService economyService, AuditLogService auditLogService) {
+                              MarketEconomyService economyService, OrderProfitabilityService profitabilityService,
+                              AuditLogService auditLogService) {
         this.orderRepository = orderRepository;
         this.customerRepository = customerRepository;
         this.productRepository = productRepository;
@@ -47,6 +50,7 @@ public class MarketOrderService {
         this.productService = productService;
         this.pricingPolicy = pricingPolicy;
         this.economyService = economyService;
+        this.profitabilityService = profitabilityService;
         this.auditLogService = auditLogService;
     }
 
@@ -94,6 +98,7 @@ public class MarketOrderService {
                 total));
         MarketOrderEntity saved = orderRepository.save(order);
         String simulationRunId = IdGenerator.prefixed("SIM");
+        profitabilityService.evaluate(saved.getOrderId(), simulationRunId);
         economyService.recordRevenue(RevenueType.CUSTOMER_DEMAND_CREATED, BigDecimal.ZERO, saved, simulationRunId,
                 null, "Synthetic customer demand created");
         economyService.recordRevenue(RevenueType.SALES_ORDER_PLACED, BigDecimal.ZERO, saved, simulationRunId,

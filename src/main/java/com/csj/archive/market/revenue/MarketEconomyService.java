@@ -8,6 +8,7 @@ import com.csj.archive.market.order.MarketOrderRepository;
 import com.csj.archive.market.order.OrderStatus;
 import com.csj.archive.market.outbox.MarketOutboxService;
 import com.csj.archive.market.outbox.OutboxTargetService;
+import com.csj.archive.market.profitability.OrderProfitabilityService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
@@ -30,13 +31,15 @@ public class MarketEconomyService {
     private final MarketReturnRepository returnRepository;
     private final MarketClaimRepository claimRepository;
     private final MarketOutboxService outboxService;
+    private final OrderProfitabilityService profitabilityService;
     private final Clock clock;
 
     public MarketEconomyService(MarketRevenueEventRepository revenueRepository, MarketCostEventRepository costRepository,
                                 MarketProfitSnapshotRepository snapshotRepository,
                                 MarketDailyCloseRepository dailyCloseRepository, MarketOrderRepository orderRepository,
                                 MarketReturnRepository returnRepository, MarketClaimRepository claimRepository,
-                                MarketOutboxService outboxService, Clock clock) {
+                                MarketOutboxService outboxService, OrderProfitabilityService profitabilityService,
+                                Clock clock) {
         this.revenueRepository = revenueRepository;
         this.costRepository = costRepository;
         this.snapshotRepository = snapshotRepository;
@@ -45,6 +48,7 @@ public class MarketEconomyService {
         this.returnRepository = returnRepository;
         this.claimRepository = claimRepository;
         this.outboxService = outboxService;
+        this.profitabilityService = profitabilityService;
         this.clock = clock;
     }
 
@@ -237,6 +241,7 @@ public class MarketEconomyService {
                 "returnRate", percentage(returned, total),
                 "claimRate", percentage(claimed, total),
                 "highRiskOrders", orderRepository.countByRiskScoreGreaterThanEqual(80)));
+        result.put("profitability", profitabilityService.summary());
         return result;
     }
 

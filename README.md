@@ -34,12 +34,19 @@ Local profile defaults:
 ## API
 
 - `GET /api/customers`
+- `GET /api/customers/{customerId}/risk-profile`
+- `POST /api/customers/{customerId}/risk-profile/recalculate`
 - `GET /api/products`
 - `POST /api/products/seed`
+- `GET /api/pricing/policies`
+- `POST /api/pricing/policies/seed`
+- `POST /api/pricing/recommend`
 - `POST /api/orders`
 - `POST /api/orders/simulate?count=100`
 - `GET /api/orders`
 - `GET /api/orders/{orderId}`
+- `POST /api/orders/{orderId}/profitability/evaluate`
+- `GET /api/orders/{orderId}/profitability`
 - `POST /api/orders/{orderId}/confirm`
 - `POST /api/orders/{orderId}/cancel`
 - `POST /api/payments/capture?orderId={orderId}`
@@ -48,13 +55,28 @@ Local profile defaults:
 - `POST /api/returns?orderId={orderId}`
 - `POST /api/claims?orderId={orderId}`
 - `GET /api/market-economy/summary`
+- `GET /api/market-profitability/summary`
+- `GET /api/market-profitability/assessments`
 - `POST /api/market-economy/daily-close?date=YYYY-MM-DD`
 - `GET /api/outbox/summary`
 - `POST /api/outbox/publish`
 - `POST /api/events/external`
 - `POST /api/simulations/orders?count=100`
+- `POST /api/simulations/profitability?count=100`
 - `POST /api/simulations/day/run?date=YYYY-MM-DD`
 - `GET /api/operations/summary`
+
+## Order Profitability & Pricing Engine
+
+Archive-Market evaluates synthetic order profitability with estimated revenue, production cost, logistics cost, Ledger settlement fee, payment fee, discount cost, expected return cost, expected claim cost, customer acquisition cost, and market operation cost.
+
+Recommendations:
+
+- `ACCEPT`
+- `REVIEW_REQUIRED`
+- `REJECT_RECOMMENDED`
+
+Low-margin or high-risk orders are written to the outbox for ArchiveOS review as `ORDER_REQUIRES_REVIEW`, `LOW_MARGIN_ORDER_DETECTED`, and `HIGH_RISK_ORDER_DETECTED`. The recommendation is advisory by default and does not cancel orders unless `archive.market.profitability.block-low-margin-orders` is enabled in a future decision flow.
 
 ## Event Safety
 

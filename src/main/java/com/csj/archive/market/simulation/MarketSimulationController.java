@@ -30,6 +30,11 @@ public class MarketSimulationController {
         return ApiResponse.ok(simulationService.orders(count), MDC.get(TraceIdFilter.TRACE_ID));
     }
 
+    @PostMapping("/profitability")
+    ApiResponse<SimulationResult> profitability(@RequestParam(defaultValue = "100") int count) {
+        return ApiResponse.ok(simulationService.profitability(count), MDC.get(TraceIdFilter.TRACE_ID));
+    }
+
     @PostMapping("/day/run")
     ApiResponse<SimulationResult> day(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {

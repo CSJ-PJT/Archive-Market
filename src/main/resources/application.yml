@@ -52,3 +52,38 @@ market:
   outbox:
     scheduler:
       enabled: false
+
+archive:
+  market:
+    profitability:
+      enabled: true
+      block-low-margin-orders: false
+      send-review-events: true
+      accept-margin-rate: 15.0
+      review-margin-rate: 5.0
+      reject-margin-rate: 5.0
+      accept-risk-score: 0.6
+      high-risk-score: 0.75
+      large-order-threshold: 3000000
+      return-review-probability: 0.3
+      claim-review-probability: 0.2
+      payment-processing-fee-rate: 0.020
+      ledger-settlement-fee-rate: 0.003
+      ledger-fixed-fee: 100
+      basic-logistics-estimate: 50000
+      urgent-logistics-surcharge-estimate: 30000
+      cold-chain-estimate: 80000
+      return-cost-factor: 0.5
+      claim-cost-factor: 0.4
+      market-operation-cost-rate: 0.010
+      customer-acquisition-cost:
+        RETAIL_CUSTOMER: 5000
+        B2B_CUSTOMER: 20000
+        VIP_CUSTOMER: 30000
+        HIGH_RISK_CUSTOMER: 10000
+        DISCOUNT_SEEKER: 7000
+        RETURN_PRONE_CUSTOMER: 8000
+      default-discount-rate:
+        DISCOUNT_SEEKER: 0.10
+        VIP_CUSTOMER: 0.05
+        B2B_CUSTOMER: 0.03

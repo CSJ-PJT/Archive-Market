@@ -80,6 +80,10 @@ public class MarketOrderItemEntity {
         return quantity;
     }
 
+    public BigDecimal getUnitCost() {
+        return unitCost;
+    }
+
     public BigDecimal getLineAmount() {
         return lineAmount;
     }

@@ -10,6 +10,7 @@ import com.csj.archive.market.order.MarketOrderService;
 import com.csj.archive.market.payment.PaymentService;
 import com.csj.archive.market.product.ProductEntity;
 import com.csj.archive.market.product.ProductService;
+import com.csj.archive.market.profitability.OrderProfitabilityService;
 import com.csj.archive.market.revenue.MarketEconomyService;
 import java.time.LocalDate;
 import java.util.List;
@@ -26,16 +27,19 @@ public class MarketSimulationService {
     private final PaymentService paymentService;
     private final ReturnClaimService returnClaimService;
     private final MarketEconomyService economyService;
+    private final OrderProfitabilityService profitabilityService;
 
     public MarketSimulationService(CustomerService customerService, ProductService productService,
                                    MarketOrderService orderService, PaymentService paymentService,
-                                   ReturnClaimService returnClaimService, MarketEconomyService economyService) {
+                                   ReturnClaimService returnClaimService, MarketEconomyService economyService,
+                                   OrderProfitabilityService profitabilityService) {
         this.customerService = customerService;
         this.productService = productService;
         this.orderService = orderService;
         this.paymentService = paymentService;
         this.returnClaimService = returnClaimService;
         this.economyService = economyService;
+        this.profitabilityService = profitabilityService;
     }
 
     @Transactional
@@ -87,6 +91,17 @@ public class MarketSimulationService {
         economyService.dailyClose(date);
         return new SimulationResult(orderResult.simulationRunId(), date, count, count, count, returns, claims,
                 economyService.summary());
+    }
+
+    @Transactional
+    public SimulationResult profitability(int count) {
+        validateCount(count);
+        SimulationResult orderResult = orders(count);
+        orderService.repository().findAll().stream()
+                .limit(count)
+                .forEach(order -> profitabilityService.evaluate(order.getOrderId(), orderResult.simulationRunId()));
+        return new SimulationResult(orderResult.simulationRunId(), null, count, count, orderResult.paymentsCaptured(),
+                0, 0, profitabilityService.summary());
     }
 
     private void validateCount(int count) {

@@ -25,7 +25,12 @@ import com.csj.archive.market.payment.MarketPaymentRepository;
 import com.csj.archive.market.payment.PaymentService;
 import com.csj.archive.market.payment.PaymentStatus;
 import com.csj.archive.market.product.ProductEntity;
+import com.csj.archive.market.product.ProductType;
 import com.csj.archive.market.product.ProductService;
+import com.csj.archive.market.profitability.OrderProfitabilityAssessmentEntity;
+import com.csj.archive.market.profitability.OrderProfitabilityAssessmentRepository;
+import com.csj.archive.market.profitability.OrderProfitabilityService;
+import com.csj.archive.market.profitability.ProfitabilityRecommendation;
 import com.csj.archive.market.revenue.CostType;
 import com.csj.archive.market.revenue.MarketCostEventRepository;
 import com.csj.archive.market.revenue.MarketEconomyService;
@@ -33,7 +38,9 @@ import com.csj.archive.market.revenue.MarketProfitSnapshotRepository;
 import com.csj.archive.market.revenue.MarketRevenueEventRepository;
 import com.csj.archive.market.revenue.RevenueType;
 import com.csj.archive.market.simulation.MarketSimulationService;
+import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -73,6 +80,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired MarketSimulationService simulationService;
     @Autowired MarketEconomyService economyService;
     @Autowired MarketInboxService inboxService;
+    @Autowired OrderProfitabilityService profitabilityService;
     @Autowired MarketOutboxPublisher outboxPublisher;
     @Autowired MarketOrderRepository orderRepository;
     @Autowired MarketPaymentRepository paymentRepository;
@@ -81,6 +89,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired MarketOutboxRepository outboxRepository;
     @Autowired MarketInboxRepository inboxRepository;
     @Autowired MarketProfitSnapshotRepository snapshotRepository;
+    @Autowired OrderProfitabilityAssessmentRepository assessmentRepository;
     @Autowired MockMvc mockMvc;
 
     @Test
@@ -160,6 +169,78 @@ class ArchiveMarketIntegrationTest {
                 .andExpect(jsonPath("$.data.integration.nexus").value("DRY_RUN_CAPABLE"));
     }
 
+    @Test
+    void profitabilityEngineEvaluatesMarginsRiskDiscountsReviewEventsAndSummaries() throws Exception {
+        var products = productService.seed();
+        ProductEntity serviceContract = product(products, ProductType.SERVICE_CONTRACT);
+        ProductEntity electronic = product(products, ProductType.ELECTRONIC_COMPONENT);
+        ProductEntity battery = product(products, ProductType.BATTERY_MODULE);
+
+        CustomerEntity vip = customerService.createSynthetic(2);
+        MarketOrderEntity acceptedOrder = orderService.create(new CreateOrderRequest(
+                vip.getCustomerId(), serviceContract.getProductId(), 1, false));
+        OrderProfitabilityAssessmentEntity accepted = profitabilityService.get(acceptedOrder.getOrderId());
+        assertThat(accepted.getRecommendation()).isEqualTo(ProfitabilityRecommendation.ACCEPT);
+        assertThat(accepted.getMarginRate()).isGreaterThanOrEqualTo(new BigDecimal("15.0000"));
+        assertThat(accepted.getRiskScore()).isLessThan(new BigDecimal("0.6000"));
+
+        CustomerEntity retail = customerService.createSynthetic(1);
+        MarketOrderEntity rejectedOrder = orderService.create(new CreateOrderRequest(
+                retail.getCustomerId(), electronic.getProductId(), 1, false));
+        OrderProfitabilityAssessmentEntity rejected = profitabilityService.get(rejectedOrder.getOrderId());
+        assertThat(rejected.getRecommendation()).isEqualTo(ProfitabilityRecommendation.REJECT_RECOMMENDED);
+        assertThat(rejected.getMarginRate()).isLessThan(new BigDecimal("5.0000"));
+
+        CustomerEntity highRisk = customerService.createSynthetic(3);
+        MarketOrderEntity highRiskOrder = orderService.create(new CreateOrderRequest(
+                highRisk.getCustomerId(), serviceContract.getProductId(), 1, false));
+        OrderProfitabilityAssessmentEntity highRiskAssessment = profitabilityService.get(highRiskOrder.getOrderId());
+        assertThat(highRiskAssessment.getRecommendation()).isEqualTo(ProfitabilityRecommendation.REVIEW_REQUIRED);
+        assertThat(highRiskAssessment.getRiskScore()).isGreaterThanOrEqualTo(new BigDecimal("0.7500"));
+
+        CustomerEntity b2b = customerService.createSynthetic(0);
+        MarketOrderEntity largeOrder = orderService.create(new CreateOrderRequest(
+                b2b.getCustomerId(), battery.getProductId(), 3, false));
+        OrderProfitabilityAssessmentEntity largeOrderAssessment = profitabilityService.get(largeOrder.getOrderId());
+        assertThat(largeOrderAssessment.getRecommendation()).isEqualTo(ProfitabilityRecommendation.REVIEW_REQUIRED);
+        assertThat(largeOrderAssessment.getOrderAmount()).isGreaterThanOrEqualTo(new BigDecimal("3000000.00"));
+
+        CustomerEntity discountSeeker = customerService.createSynthetic(4);
+        MarketOrderEntity discountedOrder = orderService.create(new CreateOrderRequest(
+                discountSeeker.getCustomerId(), serviceContract.getProductId(), 1, false));
+        OrderProfitabilityAssessmentEntity discounted = profitabilityService.get(discountedOrder.getOrderId());
+        assertThat(discounted.getDiscountCost()).isEqualByComparingTo(discountedOrder.getDiscountAmount());
+        assertThat(discounted.getExpectedReturnCost()).isGreaterThan(BigDecimal.ZERO);
+        assertThat(discounted.getExpectedClaimCost()).isGreaterThan(BigDecimal.ZERO);
+        assertThat(discounted.getExpectedTotalCost()).isEqualByComparingTo(
+                discounted.getEstimatedProductionCost()
+                        .add(discounted.getEstimatedLogisticsCost())
+                        .add(discounted.getEstimatedLedgerFee())
+                        .add(discounted.getPaymentProcessingFee())
+                        .add(discounted.getDiscountCost())
+                        .add(discounted.getExpectedReturnCost())
+                        .add(discounted.getExpectedClaimCost())
+                        .add(discounted.getCustomerAcquisitionCost())
+                        .add(discounted.getMarketOperationCost()));
+
+        assertThat(outboxRepository.findAll())
+                .extracting("eventType")
+                .contains("ORDER_REQUIRES_REVIEW");
+        long beforeDuplicate = assessmentRepository.count();
+        profitabilityService.evaluate(highRiskOrder.getOrderId());
+        assertThat(assessmentRepository.count()).isEqualTo(beforeDuplicate);
+
+        mockMvc.perform(get("/api/market-profitability/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.evaluatedOrders").exists())
+                .andExpect(jsonPath("$.data.reviewRequiredOrders").exists())
+                .andExpect(jsonPath("$.data.expectedProfit").exists());
+
+        mockMvc.perform(get("/api/market-economy/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.profitability.evaluatedOrders").exists());
+    }
+
     private ExternalEventRequest externalEvent(String eventId, String idempotencyKey, int hopCount, int maxHop) {
         return new ExternalEventRequest(
                 eventId,
@@ -175,5 +256,12 @@ class ArchiveMarketIntegrationTest {
                 hopCount,
                 maxHop,
                 Map.of("orderId", "ORD-TEST"));
+    }
+
+    private ProductEntity product(List<ProductEntity> products, ProductType type) {
+        return products.stream()
+                .filter(product -> product.getProductType() == type)
+                .findFirst()
+                .orElseThrow();
     }
 }
