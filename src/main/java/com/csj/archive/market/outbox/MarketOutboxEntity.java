@@ -104,6 +104,10 @@ public class MarketOutboxEntity {
         return eventType;
     }
 
+    public String getAggregateType() {
+        return aggregateType;
+    }
+
     public String getAggregateId() {
         return aggregateId;
     }
@@ -114,6 +118,22 @@ public class MarketOutboxEntity {
 
     public OutboxStatus getStatus() {
         return status;
+    }
+
+    public int getRetryCount() {
+        return retryCount;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public Instant getPublishedAt() {
+        return publishedAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
     }
 
     public void markDryRun(Instant now) {

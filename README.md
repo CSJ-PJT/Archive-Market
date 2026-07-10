@@ -117,6 +117,9 @@ curl.exe http://localhost:8094/api/operations/summary
 - `GET /actuator/info`
 - `GET /actuator/metrics`
 - `GET /api/operations/summary`
+- `GET /api/runtime-events/recent?limit=100`
+- `GET /api/runtime-events/correlation/{correlationId}`
+- `GET /api/runtime-events/entity/{entityId}`
 
 ### Customer / Product
 
@@ -178,6 +181,9 @@ curl.exe http://localhost:8094/api/operations/summary
 - `GET /api/market-cashflow/summary`
 - `GET /api/market-workforce/summary`
 - `GET /api/market-productivity/summary`
+- `GET /api/workforce/summary`
+- `GET /api/productivity/summary`
+- `GET /api/capacity/summary`
 - `POST /api/market-workforce/allocate`
 
 ### Simulation
@@ -367,6 +373,9 @@ docker compose config --quiet
 
 - `docs/architecture.md`
 - `docs/event-contract.md`
+- `docs/runtime-event-contract.md`
+- `docs/operations-summary-contract.md`
+- `docs/archiveos-live-flow-contract.md`
 - `docs/market-economy-model.md`
 - `docs/profitability-engine.md`
 - `docs/pricing-policy.md`

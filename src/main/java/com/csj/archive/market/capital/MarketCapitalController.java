@@ -29,9 +29,24 @@ public class MarketCapitalController {
         return ApiResponse.ok(capitalService.workforceSummary(), MDC.get(TraceIdFilter.TRACE_ID));
     }
 
+    @GetMapping("/api/workforce/summary")
+    ApiResponse<Map<String, Object>> workforceAlias() {
+        return ApiResponse.ok(capitalService.workforceSummary(), MDC.get(TraceIdFilter.TRACE_ID));
+    }
+
     @GetMapping("/api/market-productivity/summary")
     ApiResponse<Map<String, Object>> productivity() {
         return ApiResponse.ok(capitalService.productivitySummary(), MDC.get(TraceIdFilter.TRACE_ID));
+    }
+
+    @GetMapping("/api/productivity/summary")
+    ApiResponse<Map<String, Object>> productivityAlias() {
+        return ApiResponse.ok(capitalService.productivitySummary(), MDC.get(TraceIdFilter.TRACE_ID));
+    }
+
+    @GetMapping("/api/capacity/summary")
+    ApiResponse<Map<String, Object>> capacity() {
+        return ApiResponse.ok(capitalService.capacitySummary(), MDC.get(TraceIdFilter.TRACE_ID));
     }
 
     @PostMapping("/api/market-workforce/allocate")

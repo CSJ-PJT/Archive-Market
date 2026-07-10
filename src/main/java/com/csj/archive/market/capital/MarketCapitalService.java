@@ -80,15 +80,31 @@ public class MarketCapitalService {
         long orderCount = orderRepository.count();
         long capacity = processingCapacity(allocations);
         long backlog = Math.max(0, orderCount - capacity);
+        long usedCapacity = Math.min(orderCount, capacity);
         BigDecimal payroll = payrollCost(allocations);
         return ordered(Map.of(
                 "roles", allocations,
                 "totalHeadcount", allocations.stream().mapToInt(MarketWorkforceAllocationEntity::getHeadcount).sum(),
                 "orderCount", orderCount,
                 "processingCapacity", capacity,
+                "effectiveCapacity", capacity,
+                "usedCapacity", usedCapacity,
                 "backlog", backlog,
                 "payrollCost", payroll,
-                "capacityUtilization", percentage(Math.min(orderCount, capacity), Math.max(1, capacity))));
+                "capacityUtilization", percentage(usedCapacity, Math.max(1, capacity))));
+    }
+
+    @Transactional
+    public Map<String, Object> capacitySummary() {
+        Map<String, Object> workforce = workforceSummary();
+        return ordered(Map.of(
+                "serviceName", "Archive-Market",
+                "domain", "market",
+                "totalHeadcount", workforce.get("totalHeadcount"),
+                "effectiveCapacity", workforce.get("effectiveCapacity"),
+                "usedCapacity", workforce.get("usedCapacity"),
+                "backlog", workforce.get("backlog"),
+                "capacityUtilization", workforce.get("capacityUtilization")));
     }
 
     @Transactional

@@ -172,7 +172,20 @@ class ArchiveMarketIntegrationTest {
 
         mockMvc.perform(get("/api/operations/summary"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.integration.nexus").value("DRY_RUN_CAPABLE"));
+                .andExpect(jsonPath("$.data.integration.nexus").value("DRY_RUN_CAPABLE"))
+                .andExpect(jsonPath("$.data.liveFlowAvailable").value(true));
+
+        mockMvc.perform(get("/api/runtime-events/recent").param("limit", "20"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].sourceService").exists())
+                .andExpect(jsonPath("$.data[0].eventType").exists())
+                .andExpect(jsonPath("$.data[0].correlationId").exists());
+
+        mockMvc.perform(get("/api/runtime-events/correlation/CORR-TEST"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/runtime-events/entity/" + discountedOrder.getOrderId()))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -285,6 +298,17 @@ class ArchiveMarketIntegrationTest {
         mockMvc.perform(get("/api/market-productivity/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.aiAgentRecommendation").exists());
+        mockMvc.perform(get("/api/workforce/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.effectiveCapacity").exists())
+                .andExpect(jsonPath("$.data.usedCapacity").exists());
+        mockMvc.perform(get("/api/productivity/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.productivityScore").exists());
+        mockMvc.perform(get("/api/capacity/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.effectiveCapacity").exists())
+                .andExpect(jsonPath("$.data.backlog").exists());
         mockMvc.perform(get("/api/operations/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.cashflow.availableCash").exists())

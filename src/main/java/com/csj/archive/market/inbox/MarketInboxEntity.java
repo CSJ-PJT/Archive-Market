@@ -74,11 +74,27 @@ public class MarketInboxEntity {
         return idempotencyKey;
     }
 
+    public String getSourceService() {
+        return sourceService;
+    }
+
     public String getEventType() {
         return eventType;
     }
 
+    public String getPayload() {
+        return payload;
+    }
+
     public MarketInboxStatus getStatus() {
         return status;
+    }
+
+    public Instant getReceivedAt() {
+        return receivedAt;
+    }
+
+    public Instant getProcessedAt() {
+        return processedAt;
     }
 }
