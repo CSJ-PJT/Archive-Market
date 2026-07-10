@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/main/resources/static/assets/archive-logo.png" width="120" alt="Archive 로고">
+  <img src="docs/brand/archive-market-lockup.svg" width="900" alt="Archive-Market">
 </p>
 
 # Archive-Market

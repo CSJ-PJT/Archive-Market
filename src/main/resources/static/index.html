@@ -13,8 +13,9 @@
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #f7fbfc, #e9f0f3); color: var(--ink); font-family: "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif; }
     main { width: min(920px, calc(100vw - 32px)); padding: 36px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.88); box-shadow: 0 24px 60px rgba(21, 38, 46, 0.13); }
+    .lockup { width: 100%; max-width: 860px; border-radius: 10px; background: #000; display: block; margin-bottom: 26px; }
     header { display: flex; gap: 22px; align-items: center; }
-    img { width: 86px; height: 86px; border-radius: 10px; background: #000; object-fit: cover; }
+    .logo { width: 86px; height: 86px; border-radius: 10px; background: #000; object-fit: cover; }
     h1 { margin: 0 0 8px; font-size: clamp(30px, 5vw, 52px); line-height: 1; }
     p { margin: 0; color: var(--muted); line-height: 1.65; }
     .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
@@ -28,8 +29,9 @@
 </head>
 <body>
   <main>
+    <img class="lockup" src="/assets/archive-market-lockup.svg" alt="Archive-Market 브랜드 이미지">
     <header>
-      <img src="/assets/archive-logo.png" alt="Archive 로고">
+      <img class="logo" src="/assets/archive-logo.png" alt="Archive 로고">
       <div>
         <h1>Archive-Market</h1>
         <p>Archive Platform의 외부 수요, 주문, 결제, 매출, 주문 수익성 판단을 담당하는 Synthetic Commerce Backend입니다.</p>

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 420">
+  <defs>
+    <linearGradient id="markWhite" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff"/>
+      <stop offset="0.55" stop-color="#fafafa"/>
+      <stop offset="1" stop-color="#ececec"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#12f2f5"/>
+      <stop offset="1" stop-color="#00dde8"/>
+    </linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071014"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+  </defs>
+  <rect width="1500" height="420" rx="24" fill="url(#panel)"/>
+  <path d="M366 64h1030c31 0 56 25 56 56v180c0 31-25 56-56 56H366z" fill="#071014" opacity=".84"/>
+  <path d="M396 332h970" stroke="#00e6ef" stroke-width="2" opacity=".28"/>
+  <g transform="translate(28 22) scale(.36)">
+    <path d="M475.3 144.5 91.5 855 213.1 853.3 512 297.2 677.8 605.9 538.9 608.4 538.9 632.9 691.6 632.9 754.5 750.4 503.8 752.9 551.2 854.1 932.5 855 550.4 145.4Z" fill="url(#markWhite)"/>
+    <circle cx="498" cy="620.6" r="42" fill="url(#cyan)"/>
+  </g>
+  <text x="400" y="172" fill="#f5f7fa" font-family="Arial, sans-serif" font-size="74" font-weight="700" letter-spacing="12">ARCHIVE</text>
+  <text x="870" y="172" fill="#00e6ef" font-family="Arial, sans-serif" font-size="74" font-weight="700" letter-spacing="12">MARKET</text>
+  <text x="404" y="232" fill="#00e6ef" font-family="Arial, sans-serif" font-size="22" font-weight="700" letter-spacing="5">DEMAND. CASHFLOW. PROFITABILITY.</text>
+  <g transform="translate(406 272)">
+    <rect x="0" y="0" width="216" height="42" rx="8" fill="#0d1d22" stroke="#12363d"/>
+    <rect x="238" y="0" width="236" height="42" rx="8" fill="#0d1d22" stroke="#12363d"/>
+    <rect x="496" y="0" width="218" height="42" rx="8" fill="#0d1d22" stroke="#12363d"/>
+    <text x="22" y="27" fill="#dffcff" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2">ORDER FLOW</text>
+    <text x="260" y="27" fill="#dffcff" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2">WORKING CAPITAL</text>
+    <text x="518" y="27" fill="#dffcff" font-family="Arial, sans-serif" font-size="15" font-weight="700" letter-spacing="2">OUTBOX EVENTS</text>
+  </g>
+</svg>
