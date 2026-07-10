@@ -6,6 +6,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.csj.archive.market.capital.MarketCapitalService;
+import com.csj.archive.market.capital.MarketWorkdaySnapshotRepository;
 import com.csj.archive.market.claim.ReturnClaimService;
 import com.csj.archive.market.common.BusinessException;
 import com.csj.archive.market.customer.CustomerEntity;
@@ -82,6 +84,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired MarketEconomyService economyService;
     @Autowired MarketInboxService inboxService;
     @Autowired OrderProfitabilityService profitabilityService;
+    @Autowired MarketCapitalService capitalService;
     @Autowired MarketOutboxPublisher outboxPublisher;
     @Autowired MarketOrderRepository orderRepository;
     @Autowired MarketPaymentRepository paymentRepository;
@@ -92,6 +95,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired MarketProfitSnapshotRepository snapshotRepository;
     @Autowired OrderProfitabilityAssessmentRepository assessmentRepository;
     @Autowired ProfitabilityCostComponentAdjustmentRepository costAdjustmentRepository;
+    @Autowired MarketWorkdaySnapshotRepository workdaySnapshotRepository;
     @Autowired MockMvc mockMvc;
 
     @Test
@@ -250,6 +254,42 @@ class ArchiveMarketIntegrationTest {
         mockMvc.perform(get("/api/market-economy/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.profitability.evaluatedOrders").exists());
+    }
+
+    @Test
+    void workingCapitalWorkforceProductivitySummariesAndWorkdaySimulation() throws Exception {
+        simulationService.orders(5);
+
+        Map<String, Object> cashflow = capitalService.cashflowSummary();
+        assertThat(cashflow).containsKeys("availableCash", "expectedReceivable", "pendingSettlementAmount",
+                "payrollCost", "productionRequestCost", "logisticsRequestCost", "ledgerFee", "netProfit",
+                "workingCapital");
+
+        Map<String, Object> workforce = capitalService.workforceSummary();
+        assertThat(workforce).containsKeys("roles", "processingCapacity", "backlog", "payrollCost");
+        assertThat(((Number) workforce.get("processingCapacity")).longValue()).isGreaterThan(0);
+
+        Map<String, Object> productivity = capitalService.productivitySummary();
+        assertThat(productivity).containsKeys("productivityScore", "revenueConversion", "cancellationRate",
+                "claimRate", "delayRisk", "aiAgentRecommendation");
+
+        simulationService.runWorkday(LocalDate.of(2026, 7, 10));
+        assertThat(workdaySnapshotRepository.findTopByOrderByWorkDateDescCreatedAtDesc()).isPresent();
+
+        mockMvc.perform(get("/api/market-cashflow/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.availableCash").exists());
+        mockMvc.perform(get("/api/market-workforce/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.processingCapacity").exists());
+        mockMvc.perform(get("/api/market-productivity/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.aiAgentRecommendation").exists());
+        mockMvc.perform(get("/api/operations/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.cashflow.availableCash").exists())
+                .andExpect(jsonPath("$.data.workforce.processingCapacity").exists())
+                .andExpect(jsonPath("$.data.productivity.productivityScore").exists());
     }
 
     private ExternalEventRequest externalEvent(String eventId, String idempotencyKey, int hopCount, int maxHop) {

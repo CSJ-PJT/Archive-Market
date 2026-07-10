@@ -1,5 +1,6 @@
 package com.csj.archive.market.operations;
 
+import com.csj.archive.market.capital.MarketCapitalService;
 import com.csj.archive.market.inbox.MarketInboxService;
 import com.csj.archive.market.outbox.MarketOutboxService;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
@@ -18,15 +19,17 @@ public class OperationsSummaryService {
     private final MarketInboxService inboxService;
     private final MarketDailyCloseRepository dailyCloseRepository;
     private final OrderProfitabilityService profitabilityService;
+    private final MarketCapitalService capitalService;
 
     public OperationsSummaryService(MarketEconomyService economyService, MarketOutboxService outboxService,
                                     MarketInboxService inboxService, MarketDailyCloseRepository dailyCloseRepository,
-                                    OrderProfitabilityService profitabilityService) {
+                                    OrderProfitabilityService profitabilityService, MarketCapitalService capitalService) {
         this.economyService = economyService;
         this.outboxService = outboxService;
         this.inboxService = inboxService;
         this.dailyCloseRepository = dailyCloseRepository;
         this.profitabilityService = profitabilityService;
+        this.capitalService = capitalService;
     }
 
     @Transactional(readOnly = true)
@@ -35,6 +38,7 @@ public class OperationsSummaryService {
         result.put("outbox", outboxService.summary());
         result.put("inbox", inboxService.summary());
         result.put("profitability", profitabilityService.summary());
+        result.putAll(capitalService.combinedSummary());
         result.put("integration", Map.of(
                 "nexus", "DRY_RUN_CAPABLE",
                 "ledger", "DRY_RUN_CAPABLE",

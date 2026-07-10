@@ -1,5 +1,6 @@
 package com.csj.archive.market.simulation;
 
+import com.csj.archive.market.capital.MarketCapitalService;
 import com.csj.archive.market.claim.ReturnClaimService;
 import com.csj.archive.market.common.BusinessException;
 import com.csj.archive.market.common.IdGenerator;
@@ -28,11 +29,12 @@ public class MarketSimulationService {
     private final ReturnClaimService returnClaimService;
     private final MarketEconomyService economyService;
     private final OrderProfitabilityService profitabilityService;
+    private final MarketCapitalService capitalService;
 
     public MarketSimulationService(CustomerService customerService, ProductService productService,
                                    MarketOrderService orderService, PaymentService paymentService,
                                    ReturnClaimService returnClaimService, MarketEconomyService economyService,
-                                   OrderProfitabilityService profitabilityService) {
+                                   OrderProfitabilityService profitabilityService, MarketCapitalService capitalService) {
         this.customerService = customerService;
         this.productService = productService;
         this.orderService = orderService;
@@ -40,6 +42,7 @@ public class MarketSimulationService {
         this.returnClaimService = returnClaimService;
         this.economyService = economyService;
         this.profitabilityService = profitabilityService;
+        this.capitalService = capitalService;
     }
 
     @Transactional
@@ -102,6 +105,14 @@ public class MarketSimulationService {
                 .forEach(order -> profitabilityService.evaluate(order.getOrderId(), orderResult.simulationRunId()));
         return new SimulationResult(orderResult.simulationRunId(), null, count, count, orderResult.paymentsCaptured(),
                 0, 0, profitabilityService.summary());
+    }
+
+    @Transactional
+    public SimulationResult runWorkday(LocalDate date) {
+        SimulationResult result = orders(100);
+        capitalService.runWorkday(date);
+        return new SimulationResult(result.simulationRunId(), date, 100, result.ordersCreated(),
+                result.paymentsCaptured(), 0, 0, capitalService.combinedSummary());
     }
 
     private void validateCount(int count) {

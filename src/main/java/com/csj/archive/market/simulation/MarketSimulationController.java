@@ -40,4 +40,10 @@ public class MarketSimulationController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return ApiResponse.ok(simulationService.runDay(date), MDC.get(TraceIdFilter.TRACE_ID));
     }
+
+    @PostMapping("/workday/run")
+    ApiResponse<SimulationResult> workday(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return ApiResponse.ok(simulationService.runWorkday(date), MDC.get(TraceIdFilter.TRACE_ID));
+    }
 }

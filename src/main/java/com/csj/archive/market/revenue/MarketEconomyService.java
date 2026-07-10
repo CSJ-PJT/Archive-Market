@@ -2,6 +2,7 @@ package com.csj.archive.market.revenue;
 
 import com.csj.archive.market.claim.MarketClaimRepository;
 import com.csj.archive.market.claim.MarketReturnRepository;
+import com.csj.archive.market.capital.MarketCapitalService;
 import com.csj.archive.market.common.IdGenerator;
 import com.csj.archive.market.order.MarketOrderEntity;
 import com.csj.archive.market.order.MarketOrderRepository;
@@ -32,6 +33,7 @@ public class MarketEconomyService {
     private final MarketClaimRepository claimRepository;
     private final MarketOutboxService outboxService;
     private final OrderProfitabilityService profitabilityService;
+    private final MarketCapitalService capitalService;
     private final Clock clock;
 
     public MarketEconomyService(MarketRevenueEventRepository revenueRepository, MarketCostEventRepository costRepository,
@@ -39,7 +41,7 @@ public class MarketEconomyService {
                                 MarketDailyCloseRepository dailyCloseRepository, MarketOrderRepository orderRepository,
                                 MarketReturnRepository returnRepository, MarketClaimRepository claimRepository,
                                 MarketOutboxService outboxService, OrderProfitabilityService profitabilityService,
-                                Clock clock) {
+                                MarketCapitalService capitalService, Clock clock) {
         this.revenueRepository = revenueRepository;
         this.costRepository = costRepository;
         this.snapshotRepository = snapshotRepository;
@@ -49,6 +51,7 @@ public class MarketEconomyService {
         this.claimRepository = claimRepository;
         this.outboxService = outboxService;
         this.profitabilityService = profitabilityService;
+        this.capitalService = capitalService;
         this.clock = clock;
     }
 
@@ -242,6 +245,7 @@ public class MarketEconomyService {
                 "claimRate", percentage(claimed, total),
                 "highRiskOrders", orderRepository.countByRiskScoreGreaterThanEqual(80)));
         result.put("profitability", profitabilityService.summary());
+        result.putAll(capitalService.combinedSummary());
         return result;
     }
 
