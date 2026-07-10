@@ -108,6 +108,11 @@ class ArchiveMarketIntegrationTest {
 
     @Test
     void marketCommerceFlowUsesSyntheticEventsOutboxInboxAndSummaries() throws Exception {
+        mockMvc.perform(get("/dashboard"))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/dashboard/"))
+                .andExpect(status().isOk());
+
         var seeded = productService.seed();
         assertThat(seeded).hasSize(5);
 
