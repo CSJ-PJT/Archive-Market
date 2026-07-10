@@ -33,8 +33,26 @@ ArchiveOS는 Archive-Market의 runtime event, outbox, inbox, workforce, capacity
 | --- | --- |
 | `market_outbox_event` | Market이 Nexus, Ledger, ArchiveOS로 보내려는 outbound event |
 | `market_event_inbox` | Nexus, Logistics, Ledger, ArchiveOS가 Market으로 보낸 inbound event |
+| `market_revenue_event` | 고객 수요와 결제 성공 같은 Market 내부 revenue event |
+| `order_profitability_assessment` | 주문별 수익성 평가 결과 |
+| `market_workday_snapshot` | 자금흐름, workforce capacity, backlog, productivity 결과 |
 
 Outbox event는 `targetService`, `aggregateType`, `aggregateId`, `idempotencyKey`, `retryCount`를 metadata로 제공합니다. Inbox event는 `sourceService`, `idempotencyKey`, `processedAt`을 metadata로 제공합니다.
+
+Market이 Live Flow 시작점으로 노출하는 주요 eventType은 다음과 같습니다.
+
+- `CUSTOMER_DEMAND_CREATED`
+- `MARKET_ORDER_PLACED`
+- `PAYMENT_CAPTURED`
+- `ORDER_PROFITABILITY_EVALUATED`
+- `ORDER_REQUIRES_REVIEW`
+- `LOW_MARGIN_ORDER_DETECTED`
+- `HIGH_RISK_ORDER_DETECTED`
+- `REFUND_REQUESTED`
+- `CLAIM_COMPENSATION_CONFIRMED`
+- `WORKDAY_COMPLETED`
+- `CAPACITY_SHORTAGE_DETECTED`
+- `BACKLOG_INCREASED`
 
 ## Workforce / Capacity / Productivity
 

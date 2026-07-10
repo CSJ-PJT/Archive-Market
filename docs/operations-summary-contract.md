@@ -25,6 +25,12 @@ GET /api/operations/summary
 | `economy.revenue` | synthetic revenue alias |
 | `economy.cost` | synthetic cost alias |
 | `economy.profit` | synthetic profit |
+| `orders.total` | 전체 synthetic 주문 수 |
+| `orders.confirmed` | 확정 주문 수 |
+| `payments.captured` | captured synthetic payment 수 |
+| `profitability.reviewRequired` | ArchiveOS 검토가 필요한 주문 수 |
+| `cashflow.availableCash` | Market 운영 기준 synthetic available cash |
+| `cashflow.pendingSettlementAmount` | Ledger 최종 정산 전 pending settlement 금액 |
 | `workforce.totalHeadcount` | synthetic workforce 총 headcount |
 | `workforce.effectiveCapacity` | 생산성 반영 주문 처리 capacity |
 | `workforce.usedCapacity` | 현재 주문 기준 사용 capacity |

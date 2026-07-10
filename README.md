@@ -374,6 +374,7 @@ docker compose config --quiet
 - `docs/architecture.md`
 - `docs/event-contract.md`
 - `docs/runtime-event-contract.md`
+- `docs/market-runtime-event-contract.md`
 - `docs/operations-summary-contract.md`
 - `docs/archiveos-live-flow-contract.md`
 - `docs/market-economy-model.md`

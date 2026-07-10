@@ -311,18 +311,22 @@ public class OrderProfitabilityService {
         payload.put("recommendation", assessment.getRecommendation().name());
         payload.put("reason", assessment.getReason());
         outboxService.create(OutboxTargetService.ARCHIVE_OS, "ORDER_REQUIRES_REVIEW", "MARKET_ORDER",
-                assessment.getOrderId(), simulationRunId, null, IdGenerator.prefixed("CORR"),
+                assessment.getOrderId(), simulationRunId, null, correlationId(assessment),
                 assessment.getOrderId(), payload);
         if (assessment.getMarginRate().compareTo(properties.getAcceptMarginRate()) < 0) {
             outboxService.create(OutboxTargetService.ARCHIVE_OS, "LOW_MARGIN_ORDER_DETECTED", "MARKET_ORDER",
-                    assessment.getOrderId(), simulationRunId, null, IdGenerator.prefixed("CORR"),
+                    assessment.getOrderId(), simulationRunId, null, correlationId(assessment),
                     assessment.getOrderId(), payload);
         }
         if (assessment.getRiskScore().compareTo(properties.getHighRiskScore()) >= 0) {
             outboxService.create(OutboxTargetService.ARCHIVE_OS, "HIGH_RISK_ORDER_DETECTED", "MARKET_ORDER",
-                    assessment.getOrderId(), simulationRunId, null, IdGenerator.prefixed("CORR"),
+                    assessment.getOrderId(), simulationRunId, null, correlationId(assessment),
                     assessment.getOrderId(), payload);
         }
+    }
+
+    private String correlationId(OrderProfitabilityAssessmentEntity assessment) {
+        return "CORR-" + assessment.getOrderId();
     }
 
     private boolean hasProductType(MarketOrderEntity order, String productType) {

@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.csj.archive.market.capital.MarketCapitalService;
 import com.csj.archive.market.capital.MarketWorkdaySnapshotRepository;
+import com.csj.archive.market.capital.WorkforceAllocationRequest;
+import com.csj.archive.market.capital.WorkforceRole;
 import com.csj.archive.market.claim.ReturnClaimService;
 import com.csj.archive.market.common.BusinessException;
 import com.csj.archive.market.customer.CustomerEntity;
@@ -40,9 +42,11 @@ import com.csj.archive.market.revenue.MarketEconomyService;
 import com.csj.archive.market.revenue.MarketProfitSnapshotRepository;
 import com.csj.archive.market.revenue.MarketRevenueEventRepository;
 import com.csj.archive.market.revenue.RevenueType;
+import com.csj.archive.market.runtime.RuntimeEventService;
 import com.csj.archive.market.simulation.MarketSimulationService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -85,6 +89,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired MarketInboxService inboxService;
     @Autowired OrderProfitabilityService profitabilityService;
     @Autowired MarketCapitalService capitalService;
+    @Autowired RuntimeEventService runtimeEventService;
     @Autowired MarketOutboxPublisher outboxPublisher;
     @Autowired MarketOrderRepository orderRepository;
     @Autowired MarketPaymentRepository paymentRepository;
@@ -186,6 +191,10 @@ class ArchiveMarketIntegrationTest {
 
         mockMvc.perform(get("/api/runtime-events/entity/" + discountedOrder.getOrderId()))
                 .andExpect(status().isOk());
+        assertThat(runtimeEventService.byEntityId(discountedOrder.getOrderId()))
+                .extracting("eventType")
+                .contains("CUSTOMER_DEMAND_CREATED", "MARKET_ORDER_PLACED", "PAYMENT_CAPTURED",
+                        "ORDER_PROFITABILITY_EVALUATED");
     }
 
     @Test
@@ -272,6 +281,11 @@ class ArchiveMarketIntegrationTest {
     @Test
     void workingCapitalWorkforceProductivitySummariesAndWorkdaySimulation() throws Exception {
         simulationService.orders(5);
+        EnumMap<WorkforceRole, WorkforceAllocationRequest.RoleAllocation> allocations = new EnumMap<>(WorkforceRole.class);
+        for (WorkforceRole role : WorkforceRole.values()) {
+            allocations.put(role, new WorkforceAllocationRequest.RoleAllocation(0, 0, BigDecimal.ZERO, BigDecimal.ZERO));
+        }
+        capitalService.allocate(new WorkforceAllocationRequest(allocations));
 
         Map<String, Object> cashflow = capitalService.cashflowSummary();
         assertThat(cashflow).containsKeys("availableCash", "expectedReceivable", "pendingSettlementAmount",
@@ -280,7 +294,7 @@ class ArchiveMarketIntegrationTest {
 
         Map<String, Object> workforce = capitalService.workforceSummary();
         assertThat(workforce).containsKeys("roles", "processingCapacity", "backlog", "payrollCost");
-        assertThat(((Number) workforce.get("processingCapacity")).longValue()).isGreaterThan(0);
+        assertThat(((Number) workforce.get("processingCapacity")).longValue()).isGreaterThanOrEqualTo(0);
 
         Map<String, Object> productivity = capitalService.productivitySummary();
         assertThat(productivity).containsKeys("productivityScore", "revenueConversion", "cancellationRate",
@@ -288,6 +302,9 @@ class ArchiveMarketIntegrationTest {
 
         simulationService.runWorkday(LocalDate.of(2026, 7, 10));
         assertThat(workdaySnapshotRepository.findTopByOrderByWorkDateDescCreatedAtDesc()).isPresent();
+        assertThat(runtimeEventService.recent(300))
+                .extracting("eventType")
+                .contains("WORKDAY_COMPLETED", "CAPACITY_SHORTAGE_DETECTED", "BACKLOG_INCREASED");
 
         mockMvc.perform(get("/api/market-cashflow/summary"))
                 .andExpect(status().isOk())

@@ -81,6 +81,14 @@ public class MarketRevenueEventEntity {
         return idempotencyKey;
     }
 
+    public String getSimulationRunId() {
+        return simulationRunId;
+    }
+
+    public String getSettlementCycleId() {
+        return settlementCycleId;
+    }
+
     public String getOrderId() {
         return orderId;
     }
@@ -91,5 +99,13 @@ public class MarketRevenueEventEntity {
 
     public BigDecimal getRevenueAmount() {
         return revenueAmount;
+    }
+
+    public String getCurrency() {
+        return currency;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
     }
 }

@@ -244,6 +244,10 @@ public class OrderProfitabilityAssessmentEntity {
         return reason;
     }
 
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
     public void applyMeasuredCost(CostComponentType componentType, BigDecimal amount, BigDecimal expectedTotalCost,
                                   BigDecimal expectedProfit, BigDecimal marginRate,
                                   ProfitabilityRecommendation recommendation, boolean approvalRequired,

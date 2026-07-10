@@ -3,6 +3,8 @@ package com.csj.archive.market.operations;
 import com.csj.archive.market.capital.MarketCapitalService;
 import com.csj.archive.market.inbox.MarketInboxService;
 import com.csj.archive.market.outbox.MarketOutboxService;
+import com.csj.archive.market.payment.MarketPaymentRepository;
+import com.csj.archive.market.payment.PaymentStatus;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
 import com.csj.archive.market.revenue.MarketDailyCloseRepository;
 import com.csj.archive.market.revenue.MarketEconomyService;
@@ -22,11 +24,12 @@ public class OperationsSummaryService {
     private final OrderProfitabilityService profitabilityService;
     private final MarketCapitalService capitalService;
     private final RuntimeEventService runtimeEventService;
+    private final MarketPaymentRepository paymentRepository;
 
     public OperationsSummaryService(MarketEconomyService economyService, MarketOutboxService outboxService,
                                     MarketInboxService inboxService, MarketDailyCloseRepository dailyCloseRepository,
                                     OrderProfitabilityService profitabilityService, MarketCapitalService capitalService,
-                                    RuntimeEventService runtimeEventService) {
+                                    RuntimeEventService runtimeEventService, MarketPaymentRepository paymentRepository) {
         this.economyService = economyService;
         this.outboxService = outboxService;
         this.inboxService = inboxService;
@@ -34,6 +37,7 @@ public class OperationsSummaryService {
         this.profitabilityService = profitabilityService;
         this.capitalService = capitalService;
         this.runtimeEventService = runtimeEventService;
+        this.paymentRepository = paymentRepository;
     }
 
     @Transactional(readOnly = true)
@@ -45,9 +49,10 @@ public class OperationsSummaryService {
         result.put("liveFlowAvailable", true);
         result.put("degradedReason", "NONE");
         result.put("economy", economyAliases(result.get("economy")));
+        result.put("payments", Map.of("captured", paymentRepository.countByPaymentStatus(PaymentStatus.CAPTURED)));
         result.put("outbox", outboxService.summary());
         result.put("inbox", inboxService.summary());
-        result.put("profitability", profitabilityService.summary());
+        result.put("profitability", profitabilityAliases(profitabilityService.summary()));
         result.putAll(capitalService.combinedSummary());
         result.put("integration", Map.of(
                 "nexus", "DRY_RUN_CAPABLE",
@@ -62,6 +67,12 @@ public class OperationsSummaryService {
         Map<String, Object> result = new LinkedHashMap<>((Map<String, Object>) economy);
         result.put("revenue", result.get("totalRevenue"));
         result.put("cost", result.get("totalCost"));
+        return result;
+    }
+
+    private Map<String, Object> profitabilityAliases(Map<String, Object> profitability) {
+        Map<String, Object> result = new LinkedHashMap<>(profitability);
+        result.put("reviewRequired", result.get("reviewRequiredOrders"));
         return result;
     }
 }

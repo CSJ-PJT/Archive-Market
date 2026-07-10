@@ -1,11 +1,19 @@
 package com.csj.archive.market.runtime;
 
+import com.csj.archive.market.capital.MarketWorkdaySnapshotEntity;
+import com.csj.archive.market.capital.MarketWorkdaySnapshotRepository;
 import com.csj.archive.market.inbox.MarketInboxEntity;
 import com.csj.archive.market.inbox.MarketInboxRepository;
 import com.csj.archive.market.inbox.MarketInboxStatus;
 import com.csj.archive.market.outbox.MarketOutboxEntity;
 import com.csj.archive.market.outbox.MarketOutboxRepository;
 import com.csj.archive.market.outbox.OutboxStatus;
+import com.csj.archive.market.profitability.OrderProfitabilityAssessmentEntity;
+import com.csj.archive.market.profitability.OrderProfitabilityAssessmentRepository;
+import com.csj.archive.market.profitability.ProfitabilityRecommendation;
+import com.csj.archive.market.revenue.MarketRevenueEventEntity;
+import com.csj.archive.market.revenue.MarketRevenueEventRepository;
+import com.csj.archive.market.revenue.RevenueType;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
@@ -29,12 +37,21 @@ public class RuntimeEventService {
 
     private final MarketOutboxRepository outboxRepository;
     private final MarketInboxRepository inboxRepository;
+    private final MarketRevenueEventRepository revenueRepository;
+    private final OrderProfitabilityAssessmentRepository assessmentRepository;
+    private final MarketWorkdaySnapshotRepository workdaySnapshotRepository;
     private final ObjectMapper objectMapper;
 
     public RuntimeEventService(MarketOutboxRepository outboxRepository, MarketInboxRepository inboxRepository,
+                               MarketRevenueEventRepository revenueRepository,
+                               OrderProfitabilityAssessmentRepository assessmentRepository,
+                               MarketWorkdaySnapshotRepository workdaySnapshotRepository,
                                ObjectMapper objectMapper) {
         this.outboxRepository = outboxRepository;
         this.inboxRepository = inboxRepository;
+        this.revenueRepository = revenueRepository;
+        this.assessmentRepository = assessmentRepository;
+        this.workdaySnapshotRepository = workdaySnapshotRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -47,6 +64,16 @@ public class RuntimeEventService {
                 .toList());
         events.addAll(inboxRepository.findByOrderByReceivedAtDesc(PageRequest.of(0, boundedLimit)).stream()
                 .map(this::fromInbox)
+                .toList());
+        events.addAll(revenueRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, boundedLimit)).stream()
+                .filter(this::isProjectedRevenueEvent)
+                .map(this::fromRevenue)
+                .toList());
+        events.addAll(assessmentRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, boundedLimit)).stream()
+                .map(this::fromAssessment)
+                .toList());
+        events.addAll(workdaySnapshotRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, boundedLimit)).stream()
+                .flatMap(snapshot -> fromWorkday(snapshot).stream())
                 .toList());
         return events.stream()
                 .sorted(Comparator.comparing(RuntimeEventResponse::occurredAt,
@@ -78,6 +105,14 @@ public class RuntimeEventService {
         List<RuntimeEventResponse> events = new ArrayList<>();
         events.addAll(outboxRepository.findAll().stream().map(this::fromOutbox).toList());
         events.addAll(inboxRepository.findAll().stream().map(this::fromInbox).toList());
+        events.addAll(revenueRepository.findAll().stream()
+                .filter(this::isProjectedRevenueEvent)
+                .map(this::fromRevenue)
+                .toList());
+        events.addAll(assessmentRepository.findAll().stream().map(this::fromAssessment).toList());
+        events.addAll(workdaySnapshotRepository.findAll().stream()
+                .flatMap(snapshot -> fromWorkday(snapshot).stream())
+                .toList());
         return events.stream()
                 .sorted(Comparator.comparing(RuntimeEventResponse::occurredAt,
                         Comparator.nullsLast(Comparator.reverseOrder())))
@@ -108,6 +143,94 @@ public class RuntimeEventService {
                 severity(event.getStatus()),
                 displayLabel("outbound", event.getEventType(), event.getAggregateId()),
                 occurredAt,
+                metadata);
+    }
+
+    private RuntimeEventResponse fromRevenue(MarketRevenueEventEntity event) {
+        String entityId = firstNonBlank(event.getOrderId(), event.getEventId());
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("direction", "internal");
+        metadata.put("idempotencyKey", event.getIdempotencyKey());
+        metadata.put("simulationRunId", event.getSimulationRunId());
+        metadata.put("settlementCycleId", event.getSettlementCycleId());
+        metadata.put("currency", event.getCurrency());
+        metadata.put("amount", event.getRevenueAmount());
+        return new RuntimeEventResponse(
+                event.getEventId(),
+                SOURCE_SERVICE,
+                DOMAIN,
+                event.getRevenueType().name(),
+                entityType(null, event.getRevenueType().name()),
+                entityId,
+                correlationId(entityId),
+                entityId,
+                "created",
+                "info",
+                SOURCE_SERVICE + " internal " + event.getRevenueType().name() + " for " + entityId,
+                event.getCreatedAt(),
+                metadata);
+    }
+
+    private RuntimeEventResponse fromAssessment(OrderProfitabilityAssessmentEntity assessment) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("direction", "internal");
+        metadata.put("assessmentId", assessment.getAssessmentId());
+        metadata.put("customerId", assessment.getCustomerId());
+        metadata.put("customerType", assessment.getCustomerType().name());
+        metadata.put("recommendation", assessment.getRecommendation().name());
+        metadata.put("marginRate", assessment.getMarginRate());
+        metadata.put("riskScore", assessment.getRiskScore());
+        metadata.put("expectedProfit", assessment.getExpectedProfit());
+        return new RuntimeEventResponse(
+                "RTE-" + assessment.getAssessmentId(),
+                SOURCE_SERVICE,
+                DOMAIN,
+                "ORDER_PROFITABILITY_EVALUATED",
+                "order",
+                assessment.getOrderId(),
+                correlationId(assessment.getOrderId()),
+                assessment.getOrderId(),
+                assessmentStatus(assessment),
+                assessmentSeverity(assessment),
+                SOURCE_SERVICE + " evaluated profitability for " + assessment.getOrderId(),
+                assessment.getCreatedAt(),
+                metadata);
+    }
+
+    private List<RuntimeEventResponse> fromWorkday(MarketWorkdaySnapshotEntity snapshot) {
+        List<RuntimeEventResponse> events = new ArrayList<>();
+        events.add(workdayEvent(snapshot, "WORKDAY_COMPLETED", "completed", "normal"));
+        if (snapshot.getBacklogCount() > 0) {
+            events.add(workdayEvent(snapshot, "CAPACITY_SHORTAGE_DETECTED", "delayed", "warning"));
+            events.add(workdayEvent(snapshot, "BACKLOG_INCREASED", "delayed", "warning"));
+        }
+        return events;
+    }
+
+    private RuntimeEventResponse workdayEvent(MarketWorkdaySnapshotEntity snapshot, String eventType,
+                                              String status, String severity) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("direction", "internal");
+        metadata.put("workDate", snapshot.getWorkDate());
+        metadata.put("orderCount", snapshot.getOrderCount());
+        metadata.put("processingCapacity", snapshot.getProcessingCapacity());
+        metadata.put("backlog", snapshot.getBacklogCount());
+        metadata.put("availableCash", snapshot.getAvailableCash());
+        metadata.put("workingCapital", snapshot.getWorkingCapital());
+        metadata.put("productivityScore", snapshot.getProductivityScore());
+        return new RuntimeEventResponse(
+                "RTE-" + eventType + "-" + snapshot.getSnapshotId(),
+                SOURCE_SERVICE,
+                DOMAIN,
+                eventType,
+                "workday",
+                snapshot.getSnapshotId(),
+                correlationId(snapshot.getSnapshotId()),
+                snapshot.getSnapshotId(),
+                status,
+                severity,
+                SOURCE_SERVICE + " " + eventType + " for " + snapshot.getSnapshotId(),
+                snapshot.getCreatedAt(),
                 metadata);
     }
 
@@ -176,7 +299,39 @@ public class RuntimeEventService {
         if (eventType != null && eventType.contains("CLAIM")) {
             return "claim";
         }
+        if (eventType != null && eventType.contains("DEMAND")) {
+            return "demand";
+        }
         return "event";
+    }
+
+    private boolean isProjectedRevenueEvent(MarketRevenueEventEntity event) {
+        return event.getRevenueType() == RevenueType.CUSTOMER_DEMAND_CREATED
+                || event.getRevenueType() == RevenueType.PAYMENT_CAPTURED;
+    }
+
+    private String assessmentStatus(OrderProfitabilityAssessmentEntity assessment) {
+        if (assessment.getRecommendation() == ProfitabilityRecommendation.REVIEW_REQUIRED) {
+            return "approval_required";
+        }
+        if (assessment.getRecommendation() == ProfitabilityRecommendation.REJECT_RECOMMENDED) {
+            return "rejected";
+        }
+        return "completed";
+    }
+
+    private String assessmentSeverity(OrderProfitabilityAssessmentEntity assessment) {
+        if (assessment.getRecommendation() == ProfitabilityRecommendation.REJECT_RECOMMENDED) {
+            return "critical";
+        }
+        if (assessment.getRecommendation() == ProfitabilityRecommendation.REVIEW_REQUIRED) {
+            return "warning";
+        }
+        return "normal";
+    }
+
+    private String correlationId(String entityId) {
+        return entityId == null ? null : "CORR-" + entityId;
     }
 
     private String status(OutboxStatus status, String eventType) {
