@@ -1,0 +1,12 @@
+create index idx_market_order_status on market_order(order_status);
+create index idx_market_order_customer on market_order(customer_id);
+create index idx_market_payment_order on market_payment(order_id);
+create index idx_market_return_order on market_return(order_id);
+create index idx_market_claim_order on market_claim(order_id);
+create index idx_market_revenue_order on market_revenue_event(order_id);
+create index idx_market_cost_order on market_cost_event(order_id);
+create index idx_market_outbox_status on market_outbox_event(status, created_at);
+create index idx_market_outbox_target on market_outbox_event(target_service);
+create index idx_market_inbox_status on market_event_inbox(status, received_at);
+create index idx_market_daily_close_date on market_daily_close(close_date);
+create index idx_market_profit_snapshot_date on market_profit_snapshot(snapshot_date);

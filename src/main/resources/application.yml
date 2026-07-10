@@ -1,0 +1,54 @@
+server:
+  port: 8094
+
+spring:
+  application:
+    name: archive-market
+  profiles:
+    default: local
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+        format_sql: false
+    open-in-view: false
+  flyway:
+    enabled: true
+  batch:
+    jdbc:
+      initialize-schema: never
+    job:
+      enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  metrics:
+    tags:
+      application: archive-market
+
+market:
+  integration:
+    enabled: false
+    nexus:
+      base-url: ${NEXUS_BASE_URL:http://host.docker.internal:8080}
+      publish-path: /api/events/external
+    ledger:
+      base-url: ${LEDGER_BASE_URL:http://host.docker.internal:18080}
+      publish-path: /api/events/external
+    archiveos:
+      base-url: ${ARCHIVEOS_BASE_URL:http://host.docker.internal:5173}
+      publish-path: /api/ecosystem/events
+  outbox:
+    scheduler:
+      enabled: false

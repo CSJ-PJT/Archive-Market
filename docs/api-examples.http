@@ -1,0 +1,39 @@
+### Seed products
+POST http://localhost:8094/api/products/seed
+
+### Simulate orders
+POST http://localhost:8094/api/simulations/orders?count=100
+
+### Economy summary
+GET http://localhost:8094/api/market-economy/summary
+
+### Operations summary
+GET http://localhost:8094/api/operations/summary
+
+### Outbox summary
+GET http://localhost:8094/api/outbox/summary
+
+### Publish outbox in dry-run mode
+POST http://localhost:8094/api/outbox/publish
+
+### External event
+POST http://localhost:8094/api/events/external
+Content-Type: application/json
+
+{
+  "eventId": "EXT-1",
+  "idempotencyKey": "NEXUS:PRODUCTION_COMPLETED:ORD-1",
+  "source": "Archive-Nexus",
+  "eventType": "PRODUCTION_COMPLETED",
+  "schemaVersion": 1,
+  "occurredAt": "2026-07-10T00:00:00Z",
+  "simulationRunId": "SIM-DEMO",
+  "settlementCycleId": "SETTLEMENT-2026-07-10",
+  "correlationId": "CORR-DEMO",
+  "causationId": "ORD-1",
+  "hopCount": 1,
+  "maxHop": 5,
+  "payload": {
+    "orderId": "ORD-1"
+  }
+}

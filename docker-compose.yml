@@ -1,0 +1,39 @@
+services:
+  archive-market-postgres:
+    image: postgres:16-alpine
+    container_name: archive-market-postgres
+    environment:
+      POSTGRES_DB: archive_market
+      POSTGRES_USER: archive_market
+      POSTGRES_PASSWORD: archive_market
+    ports:
+      - "15435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U archive_market -d archive_market"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - archive-market-postgres-data:/var/lib/postgresql/data
+
+  archive-market:
+    build: .
+    container_name: archive-market
+    depends_on:
+      archive-market-postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: local
+      DB_URL: jdbc:postgresql://archive-market-postgres:5432/archive_market
+      DB_USERNAME: archive_market
+      DB_PASSWORD: archive_market
+      NEXUS_BASE_URL: http://host.docker.internal:8080
+      LEDGER_BASE_URL: http://host.docker.internal:18080
+      ARCHIVEOS_BASE_URL: http://host.docker.internal:5173
+      MARKET_INTEGRATION_ENABLED: "false"
+      MARKET_OUTBOX_SCHEDULER_ENABLED: "false"
+    ports:
+      - "8094:8094"
+
+volumes:
+  archive-market-postgres-data:

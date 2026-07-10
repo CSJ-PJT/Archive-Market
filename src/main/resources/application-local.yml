@@ -1,0 +1,10 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:15435/archive_market}
+    username: ${DB_USERNAME:archive_market}
+    password: ${DB_PASSWORD:archive_market}
+    driver-class-name: org.postgresql.Driver
+
+market:
+  integration:
+    enabled: ${MARKET_INTEGRATION_ENABLED:false}

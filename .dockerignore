@@ -1,0 +1,12 @@
+.git
+.gradle
+build
+.tmp-gradle
+.idea
+*.iml
+*.log
+.env
+.env.*
+!/.env.example
+postgres-data
+local-data

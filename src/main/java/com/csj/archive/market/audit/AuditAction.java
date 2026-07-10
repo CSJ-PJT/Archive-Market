@@ -1,0 +1,15 @@
+package com.csj.archive.market.audit;
+
+public enum AuditAction {
+    CUSTOMER_CREATED,
+    PRODUCT_SEEDED,
+    ORDER_CREATED,
+    ORDER_CONFIRMED,
+    ORDER_CANCELLED,
+    PAYMENT_CAPTURED,
+    PAYMENT_REFUNDED,
+    RETURN_REQUESTED,
+    CLAIM_CREATED,
+    OUTBOX_PUBLISHED,
+    DAILY_CLOSE_COMPLETED
+}
