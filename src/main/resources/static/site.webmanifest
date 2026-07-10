@@ -1,0 +1,16 @@
+{
+  "name": "Archive-Market",
+  "short_name": "Market",
+  "description": "Archive Platform Synthetic Commerce Backend",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7fbfc",
+  "theme_color": "#00d9df",
+  "icons": [
+    {
+      "src": "/assets/archive-logo.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

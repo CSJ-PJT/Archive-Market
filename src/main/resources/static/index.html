@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Archive-Market</title>
+  <meta name="description" content="Archive Platform의 외부 수요, 주문, 매출, 주문 수익성 판단을 담당하는 Synthetic Commerce Backend">
+  <link rel="icon" type="image/png" href="/assets/archive-logo.png">
+  <link rel="apple-touch-icon" href="/assets/archive-logo.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <style>
+    :root { color-scheme: light; --ink: #101719; --muted: #66757c; --line: #dbe5e8; --cyan: #00d9df; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #f7fbfc, #e9f0f3); color: var(--ink); font-family: "Pretendard", "Noto Sans KR", "Segoe UI", sans-serif; }
+    main { width: min(920px, calc(100vw - 32px)); padding: 36px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.88); box-shadow: 0 24px 60px rgba(21, 38, 46, 0.13); }
+    header { display: flex; gap: 22px; align-items: center; }
+    img { width: 86px; height: 86px; border-radius: 10px; background: #000; object-fit: cover; }
+    h1 { margin: 0 0 8px; font-size: clamp(30px, 5vw, 52px); line-height: 1; }
+    p { margin: 0; color: var(--muted); line-height: 1.65; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+    a { display: inline-flex; align-items: center; min-height: 42px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; font-weight: 800; background: white; }
+    a.primary { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(0, 217, 223, 0.15); }
+    section { margin-top: 26px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+    article { padding: 16px; border: 1px solid var(--line); border-radius: 8px; background: #fbfdfe; }
+    strong { display: block; margin-bottom: 6px; }
+    @media (max-width: 720px) { main { padding: 22px; } header { align-items: flex-start; flex-direction: column; } section { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <img src="/assets/archive-logo.png" alt="Archive 로고">
+      <div>
+        <h1>Archive-Market</h1>
+        <p>Archive Platform의 외부 수요, 주문, 결제, 매출, 주문 수익성 판단을 담당하는 Synthetic Commerce Backend입니다.</p>
+      </div>
+    </header>
+    <div class="actions">
+      <a class="primary" href="/dashboard/">운영 대시보드 열기</a>
+      <a href="/actuator/health">Health 확인</a>
+      <a href="/swagger-ui/index.html">API 문서</a>
+    </div>
+    <section aria-label="Archive-Market 핵심 기능">
+      <article><strong>수요/주문 생성</strong><p>합성 고객과 상품 주문을 생성하고 결제, 매출, 반품, 클레임 이벤트를 만듭니다.</p></article>
+      <article><strong>수익성 판단</strong><p>생산비, 물류비, 정산 수수료, 할인, 반품/클레임 리스크를 반영합니다.</p></article>
+      <article><strong>이벤트 연동</strong><p>Nexus, Logistics, Ledger 실측 비용을 assessment cost component에 반영합니다.</p></article>
+    </section>
+  </main>
+</body>
+</html>

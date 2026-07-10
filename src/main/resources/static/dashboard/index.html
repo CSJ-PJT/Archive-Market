@@ -3,7 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Archive Market Dashboard</title>
+  <title>Archive-Market 운영 대시보드</title>
+  <meta name="description" content="Archive-Market 운영, 수익성, outbox, integration contract 대시보드">
+  <link rel="icon" type="image/png" href="/assets/archive-logo.png">
+  <link rel="apple-touch-icon" href="/assets/archive-logo.png">
+  <link rel="manifest" href="/site.webmanifest">
   <link rel="stylesheet" href="./styles.css">
 </head>
 <body>
@@ -17,14 +21,14 @@
         </span>
       </a>
       <nav>
-        <a href="#overview" data-i18n="nav.overview">Overview</a>
-        <a href="#orders" data-i18n="nav.orders">Orders</a>
+        <a href="#overview" data-i18n="nav.overview">개요</a>
+        <a href="#orders" data-i18n="nav.orders">주문</a>
         <a href="#outbox" data-i18n="nav.outbox">Outbox</a>
-        <a href="#contracts" data-i18n="nav.contracts">Integration Contracts</a>
+        <a href="#contracts" data-i18n="nav.contracts">연동 계약</a>
       </nav>
       <div class="contract-note">
         <span data-i18n="sidebar.noteTitle">Synthetic only</span>
-        <p data-i18n="sidebar.noteBody">No real customer, payment, address, carrier, or financial data is used.</p>
+        <p data-i18n="sidebar.noteBody">실제 고객, 결제, 주소, 배송사, 금융 데이터는 사용하지 않습니다.</p>
       </div>
     </aside>
 
@@ -33,37 +37,37 @@
         <div>
           <p class="eyebrow" data-i18n="header.eyebrow">Archive Platform Ecosystem</p>
           <h1 data-i18n="header.title">Market Commerce Control Board</h1>
-          <p data-i18n="header.description">Demand, orders, revenue, risk, outbox, and inbound events for downstream Nexus, Ledger, and ArchiveOS integration.</p>
+          <p data-i18n="header.description">Nexus, Ledger, ArchiveOS 연동을 위한 수요, 주문, 매출, 리스크, outbox, 외부 이벤트 상태를 관제합니다.</p>
         </div>
         <div class="actions">
           <label class="language-selector" title="Display language">
-            <span aria-hidden="true">Language</span>
+            <span aria-hidden="true">언어</span>
             <select id="languageSelect" aria-label="Display language"></select>
           </label>
-          <button id="refreshButton" type="button" data-i18n="action.refresh">Refresh</button>
-          <button id="simulateButton" type="button" data-i18n="action.simulate">Simulate 100 Orders</button>
-          <button id="publishButton" type="button" data-i18n="action.publish">Publish Outbox</button>
+          <button id="refreshButton" type="button" data-i18n="action.refresh">새로고침</button>
+          <button id="simulateButton" type="button" data-i18n="action.simulate">주문 100건 시뮬레이션</button>
+          <button id="publishButton" type="button" data-i18n="action.publish">Outbox 발행</button>
         </div>
       </header>
 
       <section id="overview" class="grid metrics" aria-live="polite">
         <article class="metric">
-          <span data-i18n="metric.health">Health</span>
+          <span data-i18n="metric.health">상태</span>
           <strong id="healthStatus">-</strong>
           <small id="updatedAt">-</small>
         </article>
         <article class="metric">
-          <span data-i18n="metric.revenue">Revenue</span>
+          <span data-i18n="metric.revenue">매출</span>
           <strong id="totalRevenue">-</strong>
           <small data-i18n="metric.syntheticKrw">Synthetic KRW</small>
         </article>
         <article class="metric">
-          <span data-i18n="metric.profit">Profit</span>
+          <span data-i18n="metric.profit">이익</span>
           <strong id="profitAmount">-</strong>
           <small id="bankruptcyRisk">-</small>
         </article>
         <article class="metric">
-          <span data-i18n="metric.outbox">Outbox Pending</span>
+          <span data-i18n="metric.outbox">Outbox 대기</span>
           <strong id="outboxPending">-</strong>
           <small id="outboxDryRun">-</small>
         </article>
@@ -73,8 +77,8 @@
         <article class="panel">
           <div class="panel-title">
             <div>
-              <p class="eyebrow" data-i18n="panel.operationsEyebrow">Operations</p>
-              <h2 data-i18n="panel.operationsTitle">Service Summary</h2>
+              <p class="eyebrow" data-i18n="panel.operationsEyebrow">운영</p>
+              <h2 data-i18n="panel.operationsTitle">서비스 요약</h2>
             </div>
             <span id="serviceStatus" class="status-pill">-</span>
           </div>
@@ -84,23 +88,23 @@
         <article class="panel">
           <div class="panel-title">
             <div>
-              <p class="eyebrow" data-i18n="panel.riskEyebrow">Risk</p>
-              <h2 data-i18n="panel.riskTitle">Demand and Claim Signal</h2>
+              <p class="eyebrow" data-i18n="panel.riskEyebrow">리스크</p>
+              <h2 data-i18n="panel.riskTitle">수요 및 클레임 신호</h2>
             </div>
           </div>
           <div class="risk-bars">
             <div>
-              <span data-i18n="risk.returnRate">Return rate</span>
+              <span data-i18n="risk.returnRate">반품률</span>
               <meter id="returnRate" min="0" max="100" value="0"></meter>
               <strong id="returnRateText">0%</strong>
             </div>
             <div>
-              <span data-i18n="risk.claimRate">Claim rate</span>
+              <span data-i18n="risk.claimRate">클레임률</span>
               <meter id="claimRate" min="0" max="100" value="0"></meter>
               <strong id="claimRateText">0%</strong>
             </div>
             <div>
-              <span data-i18n="risk.highRiskOrders">High-risk orders</span>
+              <span data-i18n="risk.highRiskOrders">고위험 주문</span>
               <meter id="highRiskOrders" min="0" max="100" value="0"></meter>
               <strong id="highRiskOrdersText">0</strong>
             </div>
@@ -111,8 +115,8 @@
       <section id="orders" class="panel">
         <div class="panel-title">
           <div>
-            <p class="eyebrow" data-i18n="panel.ordersEyebrow">Order Stream</p>
-            <h2 data-i18n="panel.ordersTitle">Latest Market Orders</h2>
+            <p class="eyebrow" data-i18n="panel.ordersEyebrow">주문 흐름</p>
+            <h2 data-i18n="panel.ordersTitle">최근 Market 주문</h2>
           </div>
           <a class="endpoint-link" href="/api/orders" target="_blank" rel="noreferrer">GET /api/orders</a>
         </div>
@@ -120,15 +124,15 @@
           <table>
             <thead>
               <tr>
-                <th data-i18n="table.orderId">Order ID</th>
-                <th data-i18n="table.customer">Customer</th>
-                <th data-i18n="table.status">Status</th>
-                <th data-i18n="table.amount">Payment</th>
-                <th data-i18n="table.risk">Risk</th>
+                <th data-i18n="table.orderId">주문 ID</th>
+                <th data-i18n="table.customer">고객</th>
+                <th data-i18n="table.status">상태</th>
+                <th data-i18n="table.amount">결제액</th>
+                <th data-i18n="table.risk">리스크</th>
               </tr>
             </thead>
             <tbody id="ordersBody">
-              <tr><td colspan="5" data-i18n="state.loading">Loading</td></tr>
+              <tr><td colspan="5" data-i18n="state.loading">로딩 중</td></tr>
             </tbody>
           </table>
         </div>
@@ -138,8 +142,8 @@
         <article class="panel">
           <div class="panel-title">
             <div>
-              <p class="eyebrow" data-i18n="panel.outboxEyebrow">Outbox Pattern</p>
-              <h2 data-i18n="panel.outboxTitle">Outbound Delivery State</h2>
+              <p class="eyebrow" data-i18n="panel.outboxEyebrow">Outbox 패턴</p>
+              <h2 data-i18n="panel.outboxTitle">외부 전달 상태</h2>
             </div>
             <a class="endpoint-link" href="/api/outbox/summary" target="_blank" rel="noreferrer">GET /api/outbox/summary</a>
           </div>
@@ -149,10 +153,10 @@
         <article class="panel">
           <div class="panel-title">
             <div>
-              <p class="eyebrow" data-i18n="panel.inboxEyebrow">External Events</p>
-              <h2 data-i18n="panel.inboxTitle">Inbox Guard</h2>
+              <p class="eyebrow" data-i18n="panel.inboxEyebrow">외부 이벤트</p>
+              <h2 data-i18n="panel.inboxTitle">Inbox 가드</h2>
             </div>
-            <button id="sampleInboxButton" class="secondary" type="button" data-i18n="action.sampleInbox">Send Sample Event</button>
+            <button id="sampleInboxButton" class="secondary" type="button" data-i18n="action.sampleInbox">샘플 이벤트 수신</button>
           </div>
           <dl class="summary-list" id="inboxList"></dl>
         </article>
@@ -161,8 +165,8 @@
       <section id="contracts" class="panel">
         <div class="panel-title">
           <div>
-            <p class="eyebrow" data-i18n="panel.contractEyebrow">Contracts</p>
-            <h2 data-i18n="panel.contractTitle">Integration Payload Examples</h2>
+            <p class="eyebrow" data-i18n="panel.contractEyebrow">계약</p>
+            <h2 data-i18n="panel.contractTitle">연동 Payload 예시</h2>
           </div>
         </div>
         <div class="contract-grid" id="contractGrid"></div>
