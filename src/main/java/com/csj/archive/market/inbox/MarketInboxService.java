@@ -1,6 +1,7 @@
 package com.csj.archive.market.inbox;
 
 import com.csj.archive.market.common.BusinessException;
+import com.csj.archive.market.profitability.ExternalCostComponentAdapter;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
@@ -15,11 +16,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class MarketInboxService {
 
     private final MarketInboxRepository inboxRepository;
+    private final ExternalCostComponentAdapter costComponentAdapter;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
-    public MarketInboxService(MarketInboxRepository inboxRepository, ObjectMapper objectMapper, Clock clock) {
+    public MarketInboxService(MarketInboxRepository inboxRepository, ExternalCostComponentAdapter costComponentAdapter,
+                              ObjectMapper objectMapper, Clock clock) {
         this.inboxRepository = inboxRepository;
+        this.costComponentAdapter = costComponentAdapter;
         this.objectMapper = objectMapper;
         this.clock = clock;
     }
@@ -43,7 +47,7 @@ public class MarketInboxService {
         if (inboxRepository.existsByEventIdOrIdempotencyKey(request.eventId(), request.idempotencyKey())) {
             throw new BusinessException("DUPLICATE_EXTERNAL_EVENT", "External event already received");
         }
-        return inboxRepository.save(new MarketInboxEntity(
+        MarketInboxEntity saved = inboxRepository.save(new MarketInboxEntity(
                 request.eventId(),
                 request.idempotencyKey(),
                 request.source(),
@@ -53,6 +57,8 @@ public class MarketInboxService {
                 now,
                 now,
                 null));
+        costComponentAdapter.adapt(request);
+        return saved;
     }
 
     @Transactional

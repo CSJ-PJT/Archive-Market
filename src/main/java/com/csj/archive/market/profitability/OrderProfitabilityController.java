@@ -30,6 +30,11 @@ public class OrderProfitabilityController {
         return ApiResponse.ok(profitabilityService.get(orderId), MDC.get(TraceIdFilter.TRACE_ID));
     }
 
+    @GetMapping("/api/orders/{orderId}/profitability/cost-adjustments")
+    ApiResponse<List<ProfitabilityCostComponentAdjustmentEntity>> costAdjustments(@PathVariable String orderId) {
+        return ApiResponse.ok(profitabilityService.costAdjustments(orderId), MDC.get(TraceIdFilter.TRACE_ID));
+    }
+
     @GetMapping("/api/market-profitability/summary")
     ApiResponse<Map<String, Object>> summary() {
         return ApiResponse.ok(profitabilityService.summary(), MDC.get(TraceIdFilter.TRACE_ID));

@@ -243,4 +243,22 @@ public class OrderProfitabilityAssessmentEntity {
     public String getReason() {
         return reason;
     }
+
+    public void applyMeasuredCost(CostComponentType componentType, BigDecimal amount, BigDecimal expectedTotalCost,
+                                  BigDecimal expectedProfit, BigDecimal marginRate,
+                                  ProfitabilityRecommendation recommendation, boolean approvalRequired,
+                                  String reason) {
+        switch (componentType) {
+            case PRODUCTION_COST -> this.estimatedProductionCost = amount;
+            case LOGISTICS_COST -> this.estimatedLogisticsCost = amount;
+            case LEDGER_SETTLEMENT_FEE -> this.estimatedLedgerFee = amount;
+            case PAYMENT_PROCESSING_FEE -> this.paymentProcessingFee = amount;
+        }
+        this.expectedTotalCost = expectedTotalCost;
+        this.expectedProfit = expectedProfit;
+        this.marginRate = marginRate;
+        this.recommendation = recommendation;
+        this.approvalRequired = approvalRequired;
+        this.reason = reason;
+    }
 }

@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class OrderProfitabilityService {
 
     private final OrderProfitabilityAssessmentRepository assessmentRepository;
+    private final ProfitabilityCostComponentAdjustmentRepository adjustmentRepository;
     private final MarketOrderRepository orderRepository;
     private final CustomerRiskProfileService riskProfileService;
     private final PricingPolicyService pricingPolicyService;
@@ -27,12 +28,14 @@ public class OrderProfitabilityService {
     private final ProfitabilityProperties properties;
 
     public OrderProfitabilityService(OrderProfitabilityAssessmentRepository assessmentRepository,
+                                     ProfitabilityCostComponentAdjustmentRepository adjustmentRepository,
                                      MarketOrderRepository orderRepository,
                                      CustomerRiskProfileService riskProfileService,
                                      PricingPolicyService pricingPolicyService,
                                      MarketOutboxService outboxService,
                                      ProfitabilityProperties properties) {
         this.assessmentRepository = assessmentRepository;
+        this.adjustmentRepository = adjustmentRepository;
         this.orderRepository = orderRepository;
         this.riskProfileService = riskProfileService;
         this.pricingPolicyService = pricingPolicyService;
@@ -67,6 +70,11 @@ public class OrderProfitabilityService {
     }
 
     @Transactional(readOnly = true)
+    public List<ProfitabilityCostComponentAdjustmentEntity> costAdjustments(String orderId) {
+        return adjustmentRepository.findByOrderIdOrderByCreatedAtDesc(orderId);
+    }
+
+    @Transactional(readOnly = true)
     public Map<String, Object> summary() {
         long evaluated = assessmentRepository.count();
         long review = assessmentRepository.countByRecommendation(ProfitabilityRecommendation.REVIEW_REQUIRED);
@@ -79,8 +87,28 @@ public class OrderProfitabilityService {
                 "rejectedRecommendedOrders", rejected,
                 "lowMarginOrders", assessmentRepository.countByMarginRateLessThan(properties.getAcceptMarginRate()),
                 "highRiskOrders", assessmentRepository.countByRiskScoreGreaterThanEqual(properties.getHighRiskScore()),
+                "measuredCostAdjustments", adjustmentRepository.count(),
                 "averageMarginRate", scale(assessmentRepository.averageMarginRate(), 2),
                 "expectedProfit", scale(assessmentRepository.totalExpectedProfit(), 2));
+    }
+
+    @Transactional
+    public OrderProfitabilityAssessmentEntity applyMeasuredCost(String orderId, CostComponentType componentType,
+                                                                BigDecimal amount) {
+        OrderProfitabilityAssessmentEntity assessment = assessmentRepository.findTopByOrderIdOrderByCreatedAtDesc(orderId)
+                .orElseGet(() -> createAssessment(orderId, IdGenerator.prefixed("SIM")));
+        BigDecimal measuredAmount = scale(amount, 2);
+        BigDecimal expectedTotalCost = totalCostWith(assessment, componentType, measuredAmount);
+        BigDecimal expectedProfit = scale(assessment.getExpectedRevenue().subtract(expectedTotalCost), 2);
+        BigDecimal marginRate = assessment.getExpectedRevenue().signum() == 0
+                ? BigDecimal.ZERO
+                : scale(expectedProfit.multiply(BigDecimal.valueOf(100))
+                .divide(assessment.getExpectedRevenue(), 4, RoundingMode.HALF_UP), 4);
+        Decision decision = decide(assessment, marginRate, expectedProfit);
+        assessment.applyMeasuredCost(componentType, measuredAmount, expectedTotalCost, expectedProfit, marginRate,
+                decision.recommendation(), decision.recommendation() == ProfitabilityRecommendation.REVIEW_REQUIRED,
+                "Measured " + componentType.name() + " applied from external service: " + decision.reason());
+        return assessmentRepository.save(assessment);
     }
 
     private OrderProfitabilityAssessmentEntity createAssessment(String orderId, String simulationRunId) {
@@ -211,6 +239,60 @@ public class OrderProfitabilityService {
             return new Decision(ProfitabilityRecommendation.ACCEPT, "Expected margin and risk are acceptable");
         }
         return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "Order requires pricing review");
+    }
+
+    private Decision decide(OrderProfitabilityAssessmentEntity assessment, BigDecimal marginRate, BigDecimal expectedProfit) {
+        if (expectedProfit.signum() < 0) {
+            return new Decision(ProfitabilityRecommendation.REJECT_RECOMMENDED, "Expected profit is negative");
+        }
+        if (marginRate.compareTo(properties.getRejectMarginRate()) < 0) {
+            return new Decision(ProfitabilityRecommendation.REJECT_RECOMMENDED, "Expected margin is below rejection threshold");
+        }
+        if (marginRate.compareTo(properties.getReviewMarginRate()) >= 0
+                && marginRate.compareTo(properties.getAcceptMarginRate()) < 0) {
+            return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "Expected margin requires business review");
+        }
+        if (assessment.getRiskScore().compareTo(properties.getHighRiskScore()) >= 0) {
+            return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "Risk score exceeds review threshold");
+        }
+        if (assessment.getOrderAmount().compareTo(properties.getLargeOrderThreshold()) >= 0) {
+            return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "Large order requires ArchiveOS approval");
+        }
+        if (assessment.getCustomerType() == SyntheticCustomer.HIGH_RISK_CUSTOMER) {
+            return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "High risk synthetic customer");
+        }
+        if (assessment.getReturnProbability().compareTo(properties.getReturnReviewProbability()) >= 0) {
+            return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "Return probability exceeds review threshold");
+        }
+        if (assessment.getClaimProbability().compareTo(properties.getClaimReviewProbability()) >= 0) {
+            return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "Claim probability exceeds review threshold");
+        }
+        if (marginRate.compareTo(properties.getAcceptMarginRate()) >= 0
+                && assessment.getRiskScore().compareTo(properties.getAcceptRiskScore()) < 0) {
+            return new Decision(ProfitabilityRecommendation.ACCEPT, "Expected margin and risk are acceptable");
+        }
+        return new Decision(ProfitabilityRecommendation.REVIEW_REQUIRED, "Order requires pricing review");
+    }
+
+    private BigDecimal totalCostWith(OrderProfitabilityAssessmentEntity assessment, CostComponentType componentType,
+                                     BigDecimal amount) {
+        BigDecimal production = componentType == CostComponentType.PRODUCTION_COST
+                ? amount : assessment.getEstimatedProductionCost();
+        BigDecimal logistics = componentType == CostComponentType.LOGISTICS_COST
+                ? amount : assessment.getEstimatedLogisticsCost();
+        BigDecimal ledgerFee = componentType == CostComponentType.LEDGER_SETTLEMENT_FEE
+                ? amount : assessment.getEstimatedLedgerFee();
+        BigDecimal paymentFee = componentType == CostComponentType.PAYMENT_PROCESSING_FEE
+                ? amount : assessment.getPaymentProcessingFee();
+        return scale(production
+                .add(logistics)
+                .add(ledgerFee)
+                .add(paymentFee)
+                .add(assessment.getDiscountCost())
+                .add(assessment.getExpectedReturnCost())
+                .add(assessment.getExpectedClaimCost())
+                .add(assessment.getCustomerAcquisitionCost())
+                .add(assessment.getMarketOperationCost()), 2);
     }
 
     private void enqueueReviewEvents(OrderProfitabilityAssessmentEntity assessment, String simulationRunId) {

@@ -30,6 +30,7 @@ import com.csj.archive.market.product.ProductService;
 import com.csj.archive.market.profitability.OrderProfitabilityAssessmentEntity;
 import com.csj.archive.market.profitability.OrderProfitabilityAssessmentRepository;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
+import com.csj.archive.market.profitability.ProfitabilityCostComponentAdjustmentRepository;
 import com.csj.archive.market.profitability.ProfitabilityRecommendation;
 import com.csj.archive.market.revenue.CostType;
 import com.csj.archive.market.revenue.MarketCostEventRepository;
@@ -90,6 +91,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired MarketInboxRepository inboxRepository;
     @Autowired MarketProfitSnapshotRepository snapshotRepository;
     @Autowired OrderProfitabilityAssessmentRepository assessmentRepository;
+    @Autowired ProfitabilityCostComponentAdjustmentRepository costAdjustmentRepository;
     @Autowired MockMvc mockMvc;
 
     @Test
@@ -226,6 +228,14 @@ class ArchiveMarketIntegrationTest {
         assertThat(outboxRepository.findAll())
                 .extracting("eventType")
                 .contains("ORDER_REQUIRES_REVIEW");
+        inboxService.receive(measuredCostEvent("NEXUS-COST-1", "NEXUS:COST:1",
+                "Archive-Nexus", "PRODUCTION_COMPLETED", acceptedOrder.getOrderId(),
+                Map.of("orderId", acceptedOrder.getOrderId(), "actualProductionCost", 200000, "currency", "KRW")));
+        OrderProfitabilityAssessmentEntity measured = profitabilityService.get(acceptedOrder.getOrderId());
+        assertThat(measured.getEstimatedProductionCost()).isEqualByComparingTo("200000.00");
+        assertThat(costAdjustmentRepository.findByOrderIdOrderByCreatedAtDesc(acceptedOrder.getOrderId()))
+                .extracting("sourceService")
+                .contains("Archive-Nexus");
         long beforeDuplicate = assessmentRepository.count();
         profitabilityService.evaluate(highRiskOrder.getOrderId());
         assertThat(assessmentRepository.count()).isEqualTo(beforeDuplicate);
@@ -234,6 +244,7 @@ class ArchiveMarketIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.evaluatedOrders").exists())
                 .andExpect(jsonPath("$.data.reviewRequiredOrders").exists())
+                .andExpect(jsonPath("$.data.measuredCostAdjustments").exists())
                 .andExpect(jsonPath("$.data.expectedProfit").exists());
 
         mockMvc.perform(get("/api/market-economy/summary"))
@@ -256,6 +267,24 @@ class ArchiveMarketIntegrationTest {
                 hopCount,
                 maxHop,
                 Map.of("orderId", "ORD-TEST"));
+    }
+
+    private ExternalEventRequest measuredCostEvent(String eventId, String idempotencyKey, String source,
+                                                   String eventType, String orderId, Map<String, Object> payload) {
+        return new ExternalEventRequest(
+                eventId,
+                idempotencyKey,
+                source,
+                eventType,
+                1,
+                "2026-07-10T00:00:00Z",
+                "SIM-COST-TEST",
+                "SETTLEMENT-COST-TEST",
+                "CORR-COST-TEST",
+                orderId,
+                1,
+                5,
+                payload);
     }
 
     private ProductEntity product(List<ProductEntity> products, ProductType type) {

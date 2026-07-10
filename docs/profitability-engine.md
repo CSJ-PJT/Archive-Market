@@ -48,3 +48,9 @@ Every event includes `simulationRunId`, `settlementCycleId`, `correlationId`, `c
 ## Extension Points
 
 The current estimates can later be replaced by measured inputs from Archive-Nexus production cost, Archive-Logistics freight cost, and Archive-Ledger settlement fee data. The assessment table keeps each cost component separate to support that transition.
+
+## Measured Cost Adapters
+
+The first measured-cost adapter layer is implemented through the existing external inbox. Nexus, Logistics, and Ledger events can update the matching assessment component and recalculate total cost, profit, margin, and recommendation.
+
+See `docs/measured-cost-adapters.md`.

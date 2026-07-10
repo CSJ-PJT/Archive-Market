@@ -47,6 +47,7 @@ Local profile defaults:
 - `GET /api/orders/{orderId}`
 - `POST /api/orders/{orderId}/profitability/evaluate`
 - `GET /api/orders/{orderId}/profitability`
+- `GET /api/orders/{orderId}/profitability/cost-adjustments`
 - `POST /api/orders/{orderId}/confirm`
 - `POST /api/orders/{orderId}/cancel`
 - `POST /api/payments/capture?orderId={orderId}`
