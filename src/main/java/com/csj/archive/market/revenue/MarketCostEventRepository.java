@@ -9,4 +9,7 @@ public interface MarketCostEventRepository extends JpaRepository<MarketCostEvent
 
     @Query("select coalesce(sum(e.costAmount), 0) from MarketCostEventEntity e")
     BigDecimal totalCost();
+
+    @Query("select coalesce(sum(e.costAmount), 0) from MarketCostEventEntity e where e.costType in :types")
+    BigDecimal totalCostByTypes(Iterable<CostType> types);
 }

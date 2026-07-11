@@ -3,13 +3,19 @@ package com.csj.archive.market.capital;
 import com.csj.archive.market.common.IdGenerator;
 import com.csj.archive.market.order.MarketOrderRepository;
 import com.csj.archive.market.order.OrderStatus;
+import com.csj.archive.market.payment.MarketPaymentRepository;
+import com.csj.archive.market.payment.PaymentStatus;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
+import com.csj.archive.market.revenue.CostType;
+import com.csj.archive.market.revenue.MarketCostEventEntity;
 import com.csj.archive.market.revenue.MarketCostEventRepository;
 import com.csj.archive.market.revenue.MarketRevenueEventRepository;
+import com.csj.archive.market.revenue.RevenueType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,12 +28,31 @@ public class MarketCapitalService {
 
     public static final String DEFAULT_WORKDAY_ID = "DEFAULT";
     private static final BigDecimal SYNTHETIC_OPENING_CASH = BigDecimal.valueOf(50_000_000);
+    private static final EnumSet<RevenueType> RECOGNIZED_REVENUE_TYPES = EnumSet.of(
+            RevenueType.PLATFORM_FEE_REVENUE_RECOGNIZED,
+            RevenueType.PAYMENT_PROCESSING_FEE_REVENUE_RECOGNIZED,
+            RevenueType.OPTIONAL_SERVICE_FEE_RECOGNIZED,
+            RevenueType.AD_PROMOTION_REVENUE_RECOGNIZED,
+            RevenueType.B2B_CONTRACT_REVENUE_RECOGNIZED,
+            RevenueType.EXPRESS_ORDER_FEE_EARNED,
+            RevenueType.SERVICE_CONTRACT_REVENUE_RECOGNIZED,
+            RevenueType.CLAIM_RECOVERY_REVENUE_RECOGNIZED);
+    private static final EnumSet<CostType> RESERVE_COST_TYPES = EnumSet.of(
+            CostType.REFUND_RESERVE_BOOKED,
+            CostType.CLAIM_RESERVE_BOOKED,
+            CostType.RISK_RESERVE_ALLOCATED);
+    private static final EnumSet<CostType> PAYABLE_COST_TYPES = EnumSet.of(
+            CostType.PRODUCTION_PURCHASE_COST_INCURRED,
+            CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED,
+            CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
+            CostType.CONTROL_TOWER_FEE_INCURRED);
 
     private final MarketWorkforceAllocationRepository workforceRepository;
     private final MarketWorkdaySnapshotRepository snapshotRepository;
     private final MarketRevenueEventRepository revenueRepository;
     private final MarketCostEventRepository costRepository;
     private final MarketOrderRepository orderRepository;
+    private final MarketPaymentRepository paymentRepository;
     private final OrderProfitabilityService profitabilityService;
 
     public MarketCapitalService(MarketWorkforceAllocationRepository workforceRepository,
@@ -35,42 +60,53 @@ public class MarketCapitalService {
                                 MarketRevenueEventRepository revenueRepository,
                                 MarketCostEventRepository costRepository,
                                 MarketOrderRepository orderRepository,
+                                MarketPaymentRepository paymentRepository,
                                 OrderProfitabilityService profitabilityService) {
         this.workforceRepository = workforceRepository;
         this.snapshotRepository = snapshotRepository;
         this.revenueRepository = revenueRepository;
         this.costRepository = costRepository;
         this.orderRepository = orderRepository;
+        this.paymentRepository = paymentRepository;
         this.profitabilityService = profitabilityService;
     }
 
     @Transactional(readOnly = true)
     public Map<String, Object> cashflowSummary() {
-        BigDecimal revenue = revenueRepository.totalRevenue();
+        BigDecimal revenue = revenueRepository.totalRevenueByTypes(RECOGNIZED_REVENUE_TYPES);
         BigDecimal cost = costRepository.totalCost();
         BigDecimal payroll = payrollCost();
+        BigDecimal capturedPayment = paymentRepository.totalAmountByPaymentStatus(PaymentStatus.CAPTURED);
         BigDecimal expectedReceivable = revenue.multiply(BigDecimal.valueOf(0.35)).setScale(2, RoundingMode.HALF_UP);
-        BigDecimal pendingSettlement = revenue.multiply(BigDecimal.valueOf(0.18)).setScale(2, RoundingMode.HALF_UP);
-        BigDecimal productionRequestCost = revenue.multiply(BigDecimal.valueOf(0.22)).setScale(2, RoundingMode.HALF_UP);
-        BigDecimal logisticsRequestCost = BigDecimal.valueOf(orderRepository.count()).multiply(BigDecimal.valueOf(50_000));
-        BigDecimal ledgerFee = revenue.multiply(BigDecimal.valueOf(0.003)).add(BigDecimal.valueOf(orderRepository.count() * 100L))
+        BigDecimal pendingSettlement = capturedPayment.multiply(BigDecimal.valueOf(0.18)).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal productionRequestCost = costRepository.totalCostByTypes(List.of(CostType.PRODUCTION_PURCHASE_COST_INCURRED));
+        BigDecimal logisticsRequestCost = costRepository.totalCostByTypes(List.of(CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED));
+        BigDecimal ledgerFee = costRepository.totalCostByTypes(List.of(CostType.SETTLEMENT_AGENCY_FEE_INCURRED))
+                .add(revenue.multiply(BigDecimal.valueOf(0.003))).add(BigDecimal.valueOf(orderRepository.count() * 100L))
                 .setScale(2, RoundingMode.HALF_UP);
-        BigDecimal netProfit = revenue.subtract(cost).subtract(payroll).subtract(ledgerFee);
+        BigDecimal reserveBalance = costRepository.totalCostByTypes(RESERVE_COST_TYPES);
+        BigDecimal outstandingPayables = costRepository.totalCostByTypes(PAYABLE_COST_TYPES);
+        BigDecimal netProfit = revenue.subtract(cost).subtract(payroll);
         BigDecimal availableCash = SYNTHETIC_OPENING_CASH.add(revenue).subtract(cost).subtract(payroll)
-                .subtract(pendingSettlement).subtract(productionRequestCost).subtract(logisticsRequestCost)
-                .subtract(ledgerFee);
+                .subtract(pendingSettlement);
         BigDecimal workingCapital = availableCash.add(expectedReceivable).subtract(pendingSettlement);
-        return ordered(Map.of(
-                "availableCash", availableCash,
-                "expectedReceivable", expectedReceivable,
-                "pendingSettlementAmount", pendingSettlement,
-                "payrollCost", payroll,
-                "productionRequestCost", productionRequestCost,
-                "logisticsRequestCost", logisticsRequestCost,
-                "ledgerFee", ledgerFee,
-                "netProfit", netProfit,
-                "workingCapital", workingCapital,
-                "currency", "SYNTHETIC_KRW"));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("availableCash", availableCash);
+        result.put("expectedReceivable", expectedReceivable);
+        result.put("pendingSettlementAmount", pendingSettlement);
+        result.put("payrollCost", payroll);
+        result.put("productionRequestCost", productionRequestCost);
+        result.put("logisticsRequestCost", logisticsRequestCost);
+        result.put("ledgerFee", ledgerFee);
+        result.put("netProfit", netProfit);
+        result.put("workingCapital", workingCapital);
+        result.put("reserveBalance", reserveBalance);
+        result.put("outstandingPayables", outstandingPayables);
+        result.put("gmv", orderRepository.totalGmv());
+        result.put("recognizedRevenue", revenue);
+        result.put("totalExpense", cost);
+        result.put("currency", "SYNTHETIC_KRW");
+        return ordered(result);
     }
 
     @Transactional(readOnly = true)
@@ -152,6 +188,7 @@ public class MarketCapitalService {
         Map<String, Object> cashflow = cashflowSummary();
         Map<String, Object> workforce = workforceSummary();
         Map<String, Object> productivity = productivitySummary();
+        bookPayrollCost(date, (BigDecimal) cashflow.get("payrollCost"));
         MarketWorkdaySnapshotEntity snapshot = new MarketWorkdaySnapshotEntity(
                 IdGenerator.prefixed("WORKDAY"),
                 date,
@@ -165,6 +202,23 @@ public class MarketCapitalService {
                 (BigDecimal) productivity.get("productivityScore"),
                 productivity.get("aiAgentRecommendation").toString());
         return snapshotRepository.save(snapshot);
+    }
+
+    private void bookPayrollCost(LocalDate date, BigDecimal payroll) {
+        String key = "MARKET:COST:" + CostType.MARKET_PAYROLL_BOOKED + ":WORKDAY:" + date;
+        if (payroll.signum() <= 0 || costRepository.existsByIdempotencyKey(key)) {
+            return;
+        }
+        costRepository.save(new MarketCostEventEntity(
+                IdGenerator.prefixed("COST"),
+                key,
+                null,
+                "WORKDAY-" + date,
+                null,
+                CostType.MARKET_PAYROLL_BOOKED,
+                payroll,
+                "KRW",
+                "Synthetic workforce payroll booked for Market workday"));
     }
 
     @Transactional(readOnly = true)

@@ -13,4 +13,7 @@ public interface MarketRevenueEventRepository extends JpaRepository<MarketRevenu
 
     @Query("select coalesce(sum(e.revenueAmount), 0) from MarketRevenueEventEntity e")
     BigDecimal totalRevenue();
+
+    @Query("select coalesce(sum(e.revenueAmount), 0) from MarketRevenueEventEntity e where e.revenueType in :types")
+    BigDecimal totalRevenueByTypes(Iterable<RevenueType> types);
 }

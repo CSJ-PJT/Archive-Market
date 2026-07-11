@@ -63,11 +63,12 @@ public class PaymentService {
                 simulationRunId, null, "Synthetic product sales revenue from Archive-Market");
         if (order.getCustomerType().name().equals("B2B_CUSTOMER")) {
             economyService.recordRevenue(RevenueType.B2B_CONTRACT_REVENUE_RECOGNIZED,
-                    order.getPaymentAmount().multiply(java.math.BigDecimal.valueOf(0.03)), order,
+                    order.getPaymentAmount().multiply(java.math.BigDecimal.valueOf(0.012)), order,
                     simulationRunId, null, "Synthetic B2B contract uplift revenue");
         }
         economyService.recordCost(CostType.PAYMENT_PROCESSING_FEE_PAID, pricingPolicy.paymentFee(order.getPaymentAmount()),
                 order, simulationRunId, null, "Synthetic payment processing fee");
+        economyService.recordFinancialRebalancingForCapturedOrder(order, simulationRunId);
         economyService.enqueuePaymentCaptured(order, simulationRunId);
         auditLogService.record(AuditAction.PAYMENT_CAPTURED, "MARKET_PAYMENT", payment.getPaymentId(), null,
                 PaymentStatus.CAPTURED.name(), "Synthetic payment captured");

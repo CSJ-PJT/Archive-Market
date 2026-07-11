@@ -9,12 +9,17 @@ import com.csj.archive.market.order.MarketOrderRepository;
 import com.csj.archive.market.order.OrderStatus;
 import com.csj.archive.market.outbox.MarketOutboxService;
 import com.csj.archive.market.outbox.OutboxTargetService;
+import com.csj.archive.market.payment.MarketPaymentRepository;
+import com.csj.archive.market.payment.PaymentStatus;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +29,26 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class MarketEconomyService {
 
+    private static final BigDecimal OPENING_CASH = BigDecimal.valueOf(50_000_000);
+    private static final EnumSet<RevenueType> RECOGNIZED_REVENUE_TYPES = EnumSet.of(
+            RevenueType.PLATFORM_FEE_REVENUE_RECOGNIZED,
+            RevenueType.PAYMENT_PROCESSING_FEE_REVENUE_RECOGNIZED,
+            RevenueType.OPTIONAL_SERVICE_FEE_RECOGNIZED,
+            RevenueType.AD_PROMOTION_REVENUE_RECOGNIZED,
+            RevenueType.B2B_CONTRACT_REVENUE_RECOGNIZED,
+            RevenueType.EXPRESS_ORDER_FEE_EARNED,
+            RevenueType.SERVICE_CONTRACT_REVENUE_RECOGNIZED,
+            RevenueType.CLAIM_RECOVERY_REVENUE_RECOGNIZED);
+    private static final EnumSet<CostType> RESERVE_COST_TYPES = EnumSet.of(
+            CostType.REFUND_RESERVE_BOOKED,
+            CostType.CLAIM_RESERVE_BOOKED,
+            CostType.RISK_RESERVE_ALLOCATED);
+    private static final EnumSet<CostType> PAYABLE_COST_TYPES = EnumSet.of(
+            CostType.PRODUCTION_PURCHASE_COST_INCURRED,
+            CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED,
+            CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
+            CostType.CONTROL_TOWER_FEE_INCURRED);
+
     private final MarketRevenueEventRepository revenueRepository;
     private final MarketCostEventRepository costRepository;
     private final MarketProfitSnapshotRepository snapshotRepository;
@@ -31,6 +56,7 @@ public class MarketEconomyService {
     private final MarketOrderRepository orderRepository;
     private final MarketReturnRepository returnRepository;
     private final MarketClaimRepository claimRepository;
+    private final MarketPaymentRepository paymentRepository;
     private final MarketOutboxService outboxService;
     private final OrderProfitabilityService profitabilityService;
     private final MarketCapitalService capitalService;
@@ -40,7 +66,8 @@ public class MarketEconomyService {
                                 MarketProfitSnapshotRepository snapshotRepository,
                                 MarketDailyCloseRepository dailyCloseRepository, MarketOrderRepository orderRepository,
                                 MarketReturnRepository returnRepository, MarketClaimRepository claimRepository,
-                                MarketOutboxService outboxService, OrderProfitabilityService profitabilityService,
+                                MarketPaymentRepository paymentRepository, MarketOutboxService outboxService,
+                                OrderProfitabilityService profitabilityService,
                                 MarketCapitalService capitalService, Clock clock) {
         this.revenueRepository = revenueRepository;
         this.costRepository = costRepository;
@@ -49,6 +76,7 @@ public class MarketEconomyService {
         this.orderRepository = orderRepository;
         this.returnRepository = returnRepository;
         this.claimRepository = claimRepository;
+        this.paymentRepository = paymentRepository;
         this.outboxService = outboxService;
         this.profitabilityService = profitabilityService;
         this.capitalService = capitalService;
@@ -114,14 +142,53 @@ public class MarketEconomyService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("orderId", order.getOrderId());
         payload.put("customerId", order.getCustomerId());
-        payload.put("revenueType", RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED.name());
+        payload.put("revenueType", RevenueType.PLATFORM_FEE_REVENUE_RECOGNIZED.name());
         payload.put("amount", order.getPaymentAmount());
         payload.put("currency", order.getCurrency());
-        payload.put("reason", "Synthetic product sales revenue from Archive-Market");
+        payload.put("gmv", order.getTotalOrderAmount());
+        payload.put("recognizedRevenue", recognizedRevenueFor(order));
+        payload.put("reason", "Synthetic Market fee revenue from Archive-Market");
         outboxService.create(OutboxTargetService.LEDGER, "SALES_REVENUE_CONFIRMED", "MARKET_ORDER", order.getOrderId(),
                 simulationRunId, null, correlationId(order), order.getOrderId(), payload);
         outboxService.create(OutboxTargetService.LEDGER, "PAYMENT_CAPTURED", "MARKET_ORDER", order.getOrderId(),
                 simulationRunId, null, correlationId(order), order.getOrderId(), payload);
+    }
+
+    @Transactional
+    public void recordFinancialRebalancingForCapturedOrder(MarketOrderEntity order, String simulationRunId) {
+        BigDecimal payment = order.getPaymentAmount();
+        recordRevenue(RevenueType.PLATFORM_FEE_REVENUE_RECOGNIZED, rate(payment, "0.070"), order,
+                simulationRunId, null, "Synthetic platform fee recognized; GMV is tracked separately");
+        recordRevenue(RevenueType.PAYMENT_PROCESSING_FEE_REVENUE_RECOGNIZED, rate(payment, "0.024"), order,
+                simulationRunId, null, "Synthetic payment processing fee revenue");
+        recordRevenue(RevenueType.OPTIONAL_SERVICE_FEE_RECOGNIZED, rate(payment, "0.008"), order,
+                simulationRunId, null, "Synthetic optional service fee revenue");
+        if (order.getCustomerType().name().equals("B2B_CUSTOMER")) {
+            recordRevenue(RevenueType.B2B_CONTRACT_REVENUE_RECOGNIZED, rate(payment, "0.012"), order,
+                    simulationRunId, null, "Synthetic B2B account service fee revenue");
+        }
+
+        recordAndEnqueueCost(order, simulationRunId, CostType.PRODUCTION_PURCHASE_COST_INCURRED,
+                rate(payment, "0.580"), OutboxTargetService.NEXUS, "PRODUCTION_PURCHASE_COST_INCURRED",
+                "Synthetic purchase cost payable to Archive-Nexus");
+        recordAndEnqueueCost(order, simulationRunId, CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED,
+                rate(payment, "0.065").max(BigDecimal.valueOf(20_000)), OutboxTargetService.LOGISTICS,
+                "LOGISTICS_FULFILLMENT_FEE_INCURRED", "Synthetic fulfillment cost payable to Archive-Logistics");
+        recordAndEnqueueCost(order, simulationRunId, CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
+                rate(payment, "0.003").add(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP),
+                OutboxTargetService.LEDGER, "SETTLEMENT_AGENCY_FEE_INCURRED",
+                "Synthetic settlement agency fee payable to Archive-Ledger");
+        recordAndEnqueueCost(order, simulationRunId, CostType.CONTROL_TOWER_FEE_INCURRED,
+                rate(payment, "0.008"), OutboxTargetService.ARCHIVE_OS, "CONTROL_TOWER_FEE_INCURRED",
+                "Synthetic control tower orchestration fee payable to ArchiveOS");
+        recordCost(CostType.REFUND_RESERVE_BOOKED, rate(payment, "0.015"), order, simulationRunId, null,
+                "Synthetic refund reserve allocation");
+        recordCost(CostType.CLAIM_RESERVE_BOOKED, rate(payment, "0.010"), order, simulationRunId, null,
+                "Synthetic claim reserve allocation");
+        recordCost(CostType.RISK_RESERVE_ALLOCATED, rate(payment, "0.012"), order, simulationRunId, null,
+                "Synthetic risk reserve allocation");
+        recordCost(CostType.MARKET_OPERATION_COST_INCURRED, rate(payment, "0.018"), order, simulationRunId, null,
+                "Synthetic market operation cost");
     }
 
     @Transactional
@@ -176,9 +243,10 @@ public class MarketEconomyService {
 
     @Transactional
     public MarketProfitSnapshotEntity dailyClose(LocalDate date) {
-        BigDecimal revenue = revenueRepository.totalRevenue();
-        BigDecimal cost = costRepository.totalCost();
-        BigDecimal profit = revenue.subtract(cost);
+        Map<String, Object> financials = financialSummary();
+        BigDecimal revenue = (BigDecimal) financials.get("recognizedRevenue");
+        BigDecimal cost = (BigDecimal) financials.get("totalExpense");
+        BigDecimal profit = (BigDecimal) financials.get("operatingProfit");
         long orderCount = orderRepository.count();
         long returnCount = returnRepository.count();
         long claimCount = claimRepository.count();
@@ -194,7 +262,7 @@ public class MarketEconomyService {
                 "COMPLETED",
                 Instant.now(clock)));
         BigDecimal burnRate = profit.signum() < 0 ? profit.abs() : BigDecimal.ZERO;
-        BigDecimal cash = BigDecimal.valueOf(50_000_000).add(profit);
+        BigDecimal cash = (BigDecimal) financials.get("cashBalance");
         MarketProfitSnapshotEntity snapshot = snapshotRepository.save(new MarketProfitSnapshotEntity(
                 IdGenerator.prefixed("SNAP"),
                 null,
@@ -208,7 +276,8 @@ public class MarketEconomyService {
                 bankruptcyRisk(cash, burnRate, profit)));
         outboxService.create(OutboxTargetService.ARCHIVE_OS, "MARKET_ECONOMY_SUMMARY_UPDATED", "MARKET_DAILY_CLOSE",
                 date.toString(), null, "SETTLEMENT-" + date, IdGenerator.prefixed("CORR"), "DAILY_CLOSE",
-                Map.of("date", date, "revenue", revenue, "cost", cost, "profit", profit,
+                Map.of("date", date, "gmv", financials.get("gmv"), "recognizedRevenue", revenue,
+                        "totalExpense", cost, "operatingProfit", profit,
                         "bankruptcyRisk", snapshot.getBankruptcyRisk()));
         return snapshot;
     }
@@ -219,14 +288,15 @@ public class MarketEconomyService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> summary() {
-        BigDecimal revenue = revenueRepository.totalRevenue();
-        BigDecimal cost = costRepository.totalCost();
-        BigDecimal profit = revenue.subtract(cost);
+        Map<String, Object> financials = financialSummary();
+        BigDecimal revenue = (BigDecimal) financials.get("recognizedRevenue");
+        BigDecimal cost = (BigDecimal) financials.get("totalExpense");
+        BigDecimal profit = (BigDecimal) financials.get("operatingProfit");
         long total = orderRepository.count();
         long returned = orderRepository.countByOrderStatus(OrderStatus.RETURN_REQUESTED)
                 + orderRepository.countByOrderStatus(OrderStatus.REFUNDED);
         long claimed = orderRepository.countByOrderStatus(OrderStatus.CLAIMED);
-        BigDecimal cash = BigDecimal.valueOf(50_000_000).add(profit);
+        BigDecimal cash = (BigDecimal) financials.get("cashBalance");
         BigDecimal burnRate = profit.signum() < 0 ? profit.abs() : BigDecimal.ZERO;
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("service", "Archive-Market");
@@ -237,19 +307,51 @@ public class MarketEconomyService {
                 "cancelled", orderRepository.countByOrderStatus(OrderStatus.CANCELLED),
                 "returned", returned,
                 "claimed", claimed));
-        result.put("economy", Map.of(
-                "totalRevenue", revenue,
-                "totalCost", cost,
-                "profit", profit,
-                "cashBalance", cash,
-                "burnRate", burnRate,
-                "bankruptcyRisk", bankruptcyRisk(cash, burnRate, profit)));
+        Map<String, Object> economy = new LinkedHashMap<>(financials);
+        economy.put("totalRevenue", revenue);
+        economy.put("totalCost", cost);
+        economy.put("profit", profit);
+        economy.put("burnRate", burnRate);
+        economy.put("bankruptcyRisk", bankruptcyRisk(cash, burnRate, profit));
+        result.put("economy", economy);
         result.put("risk", Map.of(
                 "returnRate", percentage(returned, total),
                 "claimRate", percentage(claimed, total),
                 "highRiskOrders", orderRepository.countByRiskScoreGreaterThanEqual(80)));
         result.put("profitability", profitabilityService.summary());
         result.putAll(capitalService.combinedSummary());
+        return result;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> financialSummary() {
+        BigDecimal gmv = orderRepository.totalGmv();
+        BigDecimal capturedPayment = paymentRepository.totalAmountByPaymentStatus(PaymentStatus.CAPTURED);
+        BigDecimal grossSalesEvents = revenueRepository.totalRevenueByTypes(List.of(RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED));
+        BigDecimal recognizedRevenue = revenueRepository.totalRevenueByTypes(RECOGNIZED_REVENUE_TYPES);
+        BigDecimal totalExpense = costRepository.totalCost();
+        BigDecimal reserveBalance = costRepository.totalCostByTypes(RESERVE_COST_TYPES);
+        BigDecimal outstandingPayables = costRepository.totalCostByTypes(PAYABLE_COST_TYPES);
+        BigDecimal operatingProfit = recognizedRevenue.subtract(totalExpense);
+        BigDecimal pendingSettlement = capturedPayment.multiply(BigDecimal.valueOf(0.18)).setScale(2, RoundingMode.HALF_UP);
+        BigDecimal cashBalance = OPENING_CASH.add(recognizedRevenue)
+                .subtract(totalExpense)
+                .subtract(pendingSettlement)
+                .setScale(2, RoundingMode.HALF_UP);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("gmv", gmv);
+        result.put("grossSalesEvents", grossSalesEvents);
+        result.put("recognizedRevenue", recognizedRevenue);
+        result.put("totalExpense", totalExpense);
+        result.put("operatingProfit", operatingProfit);
+        result.put("cashBalance", cashBalance);
+        result.put("reserveBalance", reserveBalance);
+        result.put("outstandingPayables", outstandingPayables);
+        result.put("pendingSettlementAmount", pendingSettlement);
+        result.put("cashDeltaReason", cashDeltaReason(recognizedRevenue, totalExpense, pendingSettlement, cashBalance));
+        result.put("topRevenueDrivers", topRevenueDrivers());
+        result.put("topExpenseDrivers", topExpenseDrivers());
+        result.put("currency", "SYNTHETIC_KRW");
         return result;
     }
 
@@ -274,6 +376,64 @@ public class MarketEconomyService {
         return BigDecimal.valueOf(value)
                 .multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+    }
+
+    private void recordAndEnqueueCost(MarketOrderEntity order, String simulationRunId, CostType costType,
+                                      BigDecimal amount, OutboxTargetService target, String eventType, String reason) {
+        recordCost(costType, amount, order, simulationRunId, null, reason);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("orderId", order.getOrderId());
+        payload.put("customerId", order.getCustomerId());
+        payload.put("costType", costType.name());
+        payload.put("amount", amount);
+        payload.put("currency", order.getCurrency());
+        payload.put("reason", reason);
+        payload.put("synthetic", true);
+        outboxService.create(target, eventType, "MARKET_ORDER", order.getOrderId(), simulationRunId, null,
+                correlationId(order), order.getOrderId(), payload);
+    }
+
+    private BigDecimal recognizedRevenueFor(MarketOrderEntity order) {
+        BigDecimal payment = order.getPaymentAmount();
+        BigDecimal revenue = rate(payment, "0.102");
+        if (order.getCustomerType().name().equals("B2B_CUSTOMER")) {
+            revenue = revenue.add(rate(payment, "0.012"));
+        }
+        return revenue.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal rate(BigDecimal amount, String rate) {
+        return amount.multiply(new BigDecimal(rate)).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private String cashDeltaReason(BigDecimal recognizedRevenue, BigDecimal totalExpense, BigDecimal pendingSettlement,
+                                   BigDecimal cashBalance) {
+        return "Opening synthetic cash plus fee-based recognized revenue, minus ecosystem payables, reserves, "
+                + "operating expense, and pending settlement. Gross GMV is not treated as Market profit. "
+                + "recognizedRevenue=" + recognizedRevenue + ", totalExpense=" + totalExpense
+                + ", pendingSettlement=" + pendingSettlement + ", cashBalance=" + cashBalance;
+    }
+
+    private List<Map<String, Object>> topRevenueDrivers() {
+        Map<RevenueType, BigDecimal> totals = new EnumMap<>(RevenueType.class);
+        revenueRepository.findAll().stream()
+                .filter(event -> RECOGNIZED_REVENUE_TYPES.contains(event.getRevenueType()))
+                .forEach(event -> totals.merge(event.getRevenueType(), event.getRevenueAmount(), BigDecimal::add));
+        return totals.entrySet().stream()
+                .sorted(Map.Entry.<RevenueType, BigDecimal>comparingByValue(Comparator.reverseOrder()))
+                .limit(5)
+                .map(entry -> Map.<String, Object>of("type", entry.getKey().name(), "amount", entry.getValue()))
+                .toList();
+    }
+
+    private List<Map<String, Object>> topExpenseDrivers() {
+        Map<CostType, BigDecimal> totals = new EnumMap<>(CostType.class);
+        costRepository.findAll().forEach(event -> totals.merge(event.getCostType(), event.getCostAmount(), BigDecimal::add));
+        return totals.entrySet().stream()
+                .sorted(Map.Entry.<CostType, BigDecimal>comparingByValue(Comparator.reverseOrder()))
+                .limit(8)
+                .map(entry -> Map.<String, Object>of("type", entry.getKey().name(), "amount", entry.getValue()))
+                .toList();
     }
 
     private String bankruptcyRisk(BigDecimal cash, BigDecimal burnRate, BigDecimal profit) {

@@ -44,10 +44,13 @@ public class MarketOutboxPublisher {
             try {
                 switch (event.getTargetService()) {
                     case NEXUS -> nexusClient.publish(event.getPayload());
+                    case LOGISTICS -> event.markDryRun(now);
                     case LEDGER -> ledgerClient.publish(event.getPayload());
                     case ARCHIVE_OS -> archiveOsClient.publish(event.getPayload());
                 }
-                event.markPublished(now);
+                if (event.getStatus() != OutboxStatus.DRY_RUN) {
+                    event.markPublished(now);
+                }
             } catch (RuntimeException ex) {
                 event.markFailed(ex.getMessage(), now.plusSeconds(60));
             }

@@ -137,7 +137,19 @@ class ArchiveMarketIntegrationTest {
                 .contains(RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED, RevenueType.EXPRESS_ORDER_FEE_EARNED);
         assertThat(costRepository.findAll())
                 .extracting("costType")
-                .contains(CostType.DISCOUNT_COST_INCURRED, CostType.PAYMENT_PROCESSING_FEE_PAID);
+                .contains(CostType.DISCOUNT_COST_INCURRED, CostType.PAYMENT_PROCESSING_FEE_PAID,
+                        CostType.PRODUCTION_PURCHASE_COST_INCURRED,
+                        CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED,
+                        CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
+                        CostType.CONTROL_TOWER_FEE_INCURRED,
+                        CostType.REFUND_RESERVE_BOOKED,
+                        CostType.CLAIM_RESERVE_BOOKED);
+        assertThat(outboxRepository.findAll())
+                .extracting("eventType")
+                .contains("PRODUCTION_PURCHASE_COST_INCURRED",
+                        "LOGISTICS_FULFILLMENT_FEE_INCURRED",
+                        "SETTLEMENT_AGENCY_FEE_INCURRED",
+                        "CONTROL_TOWER_FEE_INCURRED");
         assertThat(outboxRepository.count()).isGreaterThan(0);
 
         var simulated = simulationService.orders(3);
@@ -182,6 +194,15 @@ class ArchiveMarketIntegrationTest {
         mockMvc.perform(get("/api/market-economy/summary"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.service").value("Archive-Market"))
+                .andExpect(jsonPath("$.data.economy.gmv").exists())
+                .andExpect(jsonPath("$.data.economy.recognizedRevenue").exists())
+                .andExpect(jsonPath("$.data.economy.totalExpense").exists())
+                .andExpect(jsonPath("$.data.economy.operatingProfit").exists())
+                .andExpect(jsonPath("$.data.economy.reserveBalance").exists())
+                .andExpect(jsonPath("$.data.economy.outstandingPayables").exists())
+                .andExpect(jsonPath("$.data.economy.cashDeltaReason").exists())
+                .andExpect(jsonPath("$.data.economy.topRevenueDrivers").isArray())
+                .andExpect(jsonPath("$.data.economy.topExpenseDrivers").isArray())
                 .andExpect(jsonPath("$.data.economy.totalRevenue").exists())
                 .andExpect(jsonPath("$.data.economy.totalCost").exists())
                 .andExpect(jsonPath("$.data.economy.profit").exists());

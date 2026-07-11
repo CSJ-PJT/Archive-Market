@@ -70,8 +70,9 @@ public class OperationsSummaryService {
     @SuppressWarnings("unchecked")
     private Map<String, Object> economyAliases(Object economy) {
         Map<String, Object> result = new LinkedHashMap<>((Map<String, Object>) economy);
-        result.put("revenue", result.get("totalRevenue"));
-        result.put("cost", result.get("totalCost"));
+        result.put("revenue", result.get("recognizedRevenue"));
+        result.put("cost", result.get("totalExpense"));
+        result.put("profit", result.get("operatingProfit"));
         return result;
     }
 
