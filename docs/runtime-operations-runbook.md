@@ -2,6 +2,12 @@
 
 Auto-run creates synthetic demand/order and evaluates profitability. Only ACCEPT orders are confirmed, captured, and sent to Nexus/Ledger. REVIEW_REQUIRED and REJECT_RECOMMENDED orders stay pending without automatic cancellation or payment.
 
+## Testcontainers Local Condition
+
+ArchiveMarketIntegrationTest uses Testcontainers with disabledWithoutDocker=true. In this Windows environment Docker CLI and service containers are available, but the Testcontainers Java client fails Docker client discovery through the configured NpipeSocketClientProviderStrategy with Docker API HTTP 400. The test class is therefore skipped rather than treated as an application failure.
+
+This is a local Docker Desktop client-discovery limitation, not an intended application test pass. Linux CI runners with a reachable Docker daemon execute the same Testcontainers path. Local verification must include bootJar, static checks, and isolated runtime smoke when Docker work is permitted.
+
 ## Runtime 확인
 
 ```powershell
