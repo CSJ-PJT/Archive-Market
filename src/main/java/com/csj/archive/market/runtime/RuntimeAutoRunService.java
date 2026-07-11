@@ -7,6 +7,8 @@ import com.csj.archive.market.order.MarketOrderService;
 import com.csj.archive.market.payment.PaymentService;
 import com.csj.archive.market.product.ProductEntity;
 import com.csj.archive.market.product.ProductService;
+import com.csj.archive.market.profitability.OrderProfitabilityService;
+import com.csj.archive.market.profitability.ProfitabilityRecommendation;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -30,6 +32,7 @@ public class RuntimeAutoRunService {
     private final ProductService productService;
     private final MarketOrderService orderService;
     private final PaymentService paymentService;
+    private final OrderProfitabilityService profitabilityService;
     private final MarketCapitalService capitalService;
     private final RuntimeEventService runtimeEventService;
     private final Clock clock;
@@ -40,17 +43,19 @@ public class RuntimeAutoRunService {
 
     public RuntimeAutoRunService(RuntimeAutoRunProperties properties, ProductService productService,
                                  MarketOrderService orderService, PaymentService paymentService,
-                                 MarketCapitalService capitalService, RuntimeEventService runtimeEventService,
+                                 OrderProfitabilityService profitabilityService, MarketCapitalService capitalService,
+                                 RuntimeEventService runtimeEventService,
                                  Clock clock) {
         this.properties = properties;
         this.productService = productService;
         this.orderService = orderService;
         this.paymentService = paymentService;
+        this.profitabilityService = profitabilityService;
         this.capitalService = capitalService;
         this.runtimeEventService = runtimeEventService;
         this.clock = clock;
         this.status = new RuntimeStatusResponse(SERVICE_NAME, false, properties.getAutorun().isEnabled(),
-                "IDLE", null, null, 0, 0, 0, "IDLE");
+                "IDLE", null, null, 0, 0, 0, 0, null, null, "IDLE");
     }
 
     @Scheduled(fixedDelayString = "#{@runtimeAutoRunProperties.tickInterval.toMillis()}")
@@ -66,7 +71,8 @@ public class RuntimeAutoRunService {
         Instant lastEventAt = runtimeEventService.latestEventAt().orElse(status.lastEventAt());
         return new RuntimeStatusResponse(SERVICE_NAME, properties.getAutorun().isEnabled(), properties.getAutorun().isEnabled(),
                 schedulerStatus(), status.lastWorkAt(), lastEventAt, status.eventsProducedLastTick(),
-                status.eventsConsumedLastTick(), status.backlogCount(), pipelineStatus(lastEventAt));
+                status.eventsConsumedLastTick(), status.backlogCount(), capitalService.oldestBacklogAgeSeconds(),
+                runtimeEventService.latestCursor(), status.degradedReason(), pipelineStatus(lastEventAt));
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -93,6 +99,8 @@ public class RuntimeAutoRunService {
             }
             Instant startedAt = Instant.now(clock);
             markRunningStarted(startedAt);
+            // Workforce provisioning is runtime work, never a side effect of a summary GET.
+            capitalService.seedDefaults();
             int budget = Math.max(0, properties.getMaxEventsPerTick());
             int produced = 0;
             long backlog = backlogCount();
@@ -121,6 +129,12 @@ public class RuntimeAutoRunService {
         List<ProductEntity> products = productService.seed();
         ProductEntity product = products.get((int) (Math.abs(tickKey()) % products.size()));
         MarketOrderEntity order = orderService.create(new CreateOrderRequest(null, product.getProductId(), 1, false));
+        ProfitabilityRecommendation recommendation = profitabilityService.get(order.getOrderId()).getRecommendation();
+        if (recommendation != ProfitabilityRecommendation.ACCEPT) {
+            log.info("Autonomous Market order retained without confirmation: orderId={}, recommendation={}",
+                    order.getOrderId(), recommendation);
+            return;
+        }
         orderService.confirm(order.getOrderId());
         paymentService.capture(order.getOrderId());
     }
@@ -133,7 +147,8 @@ public class RuntimeAutoRunService {
     private void markRunningStarted(Instant startedAt) {
         this.status = new RuntimeStatusResponse(SERVICE_NAME, properties.getAutorun().isEnabled(),
                 properties.getAutorun().isEnabled(), "RUNNING", startedAt, status.lastEventAt(), 0,
-                0, status.backlogCount(), "LIVE");
+                0, status.backlogCount(), capitalService.oldestBacklogAgeSeconds(),
+                runtimeEventService.latestCursor(), null, "LIVE");
     }
 
     private void updateStatus(String schedulerStatus, Instant lastWorkAt, int produced, int consumed,
@@ -142,7 +157,8 @@ public class RuntimeAutoRunService {
         Instant lastEventAt = runtimeEventService.latestEventAt().orElse(status.lastEventAt());
         this.status = new RuntimeStatusResponse(SERVICE_NAME, properties.getAutorun().isEnabled(),
                 properties.getAutorun().isEnabled(), schedulerStatus, effectiveLastWorkAt, lastEventAt, produced,
-                consumed, backlogCount(), pipelineStatus);
+                consumed, backlogCount(), capitalService.oldestBacklogAgeSeconds(), runtimeEventService.latestCursor(),
+                "DEGRADED".equals(pipelineStatus) ? "RUNTIME_WORK_TICK_FAILED" : null, pipelineStatus);
     }
 
     private String schedulerStatus() {

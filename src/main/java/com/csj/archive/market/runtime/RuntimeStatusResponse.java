@@ -12,6 +12,9 @@ public record RuntimeStatusResponse(
         int eventsProducedLastTick,
         int eventsConsumedLastTick,
         long backlogCount,
+        long oldestBacklogAgeSeconds,
+        String latestCursor,
+        String degradedReason,
         String pipelineStatus
 ) {
 }

@@ -21,8 +21,9 @@ public class RuntimeEventController {
     }
 
     @GetMapping("/recent")
-    ApiResponse<List<RuntimeEventResponse>> recent(@RequestParam(defaultValue = "100") int limit) {
-        return ApiResponse.ok(runtimeEventService.recent(limit), MDC.get(TraceIdFilter.TRACE_ID));
+    ApiResponse<List<RuntimeEventResponse>> recent(@RequestParam(required = false) String after,
+                                                   @RequestParam(defaultValue = "100") int limit) {
+        return ApiResponse.ok(runtimeEventService.recent(after, limit), MDC.get(TraceIdFilter.TRACE_ID));
     }
 
     @GetMapping("/correlation/{correlationId}")

@@ -1,6 +1,7 @@
 package com.csj.archive.market.revenue;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,4 +17,10 @@ public interface MarketRevenueEventRepository extends JpaRepository<MarketRevenu
 
     @Query("select coalesce(sum(e.revenueAmount), 0) from MarketRevenueEventEntity e where e.revenueType in :types")
     BigDecimal totalRevenueByTypes(Iterable<RevenueType> types);
+
+    @Query("select min(e.createdAt) from MarketRevenueEventEntity e")
+    java.util.Optional<Instant> findEarliestCreatedAt();
+
+    @Query("select max(e.createdAt) from MarketRevenueEventEntity e")
+    java.util.Optional<Instant> findLatestCreatedAt();
 }

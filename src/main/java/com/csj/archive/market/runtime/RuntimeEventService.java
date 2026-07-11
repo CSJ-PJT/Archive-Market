@@ -17,7 +17,9 @@ import com.csj.archive.market.revenue.RevenueType;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Instant;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,7 +59,22 @@ public class RuntimeEventService {
 
     @Transactional(readOnly = true)
     public List<RuntimeEventResponse> recent(int limit) {
+        return recent(null, limit);
+    }
+
+    @Transactional(readOnly = true)
+    public List<RuntimeEventResponse> recent(String after, int limit) {
         int boundedLimit = normalizeLimit(limit);
+        if (after != null && !after.isBlank()) {
+            Cursor cursor = decodeCursor(after);
+            return allMapped().stream()
+                    .filter(event -> isAfter(event, cursor))
+                    .sorted(Comparator.comparing(RuntimeEventResponse::occurredAt,
+                            Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparing(RuntimeEventResponse::eventId, Comparator.nullsLast(Comparator.naturalOrder())))
+                    .limit(boundedLimit)
+                    .toList();
+        }
         List<RuntimeEventResponse> events = new ArrayList<>();
         events.addAll(outboxRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, boundedLimit)).stream()
                 .map(this::fromOutbox)
@@ -101,6 +118,11 @@ public class RuntimeEventService {
         return recent(1).stream().findFirst().map(RuntimeEventResponse::occurredAt);
     }
 
+    @Transactional(readOnly = true)
+    public String latestCursor() {
+        return recent(1).stream().findFirst().map(RuntimeEventResponse::cursor).orElse(null);
+    }
+
     private List<RuntimeEventResponse> allMapped() {
         List<RuntimeEventResponse> events = new ArrayList<>();
         events.addAll(outboxRepository.findAll().stream().map(this::fromOutbox).toList());
@@ -132,17 +154,25 @@ public class RuntimeEventService {
         metadata.put("retryCount", event.getRetryCount());
         return new RuntimeEventResponse(
                 event.getEventId(),
+                event.getIdempotencyKey(),
                 SOURCE_SERVICE,
+                event.getTargetService().name(),
                 DOMAIN,
                 event.getEventType(),
                 entityType(event.getAggregateType()),
                 event.getAggregateId(),
                 correlationId,
                 causationId,
+                stringValue(envelope.get("simulationRunId")),
+                stringValue(envelope.get("settlementCycleId")),
+                stringValue(envelope.get("workdayId")),
                 status(event.getStatus(), event.getEventType()),
                 severity(event.getStatus()),
                 displayLabel("outbound", event.getEventType(), event.getAggregateId()),
                 occurredAt,
+                intValue(envelope.get("hopCount"), 1),
+                intValue(envelope.get("maxHop"), 5),
+                cursor(occurredAt, event.getEventId()),
                 metadata);
     }
 
@@ -157,17 +187,25 @@ public class RuntimeEventService {
         metadata.put("amount", event.getRevenueAmount());
         return new RuntimeEventResponse(
                 event.getEventId(),
+                event.getIdempotencyKey(),
                 SOURCE_SERVICE,
+                null,
                 DOMAIN,
                 event.getRevenueType().name(),
                 entityType(null, event.getRevenueType().name()),
                 entityId,
                 correlationId(entityId),
                 entityId,
-                "created",
-                "info",
+                event.getSimulationRunId(),
+                event.getSettlementCycleId(),
+                null,
+                "CREATED",
+                "INFO",
                 SOURCE_SERVICE + " internal " + event.getRevenueType().name() + " for " + entityId,
                 event.getCreatedAt(),
+                0,
+                0,
+                cursor(event.getCreatedAt(), event.getEventId()),
                 metadata);
     }
 
@@ -183,26 +221,34 @@ public class RuntimeEventService {
         metadata.put("expectedProfit", assessment.getExpectedProfit());
         return new RuntimeEventResponse(
                 "RTE-" + assessment.getAssessmentId(),
+                "MARKET:ORDER_PROFITABILITY_EVALUATED:" + assessment.getOrderId(),
                 SOURCE_SERVICE,
+                null,
                 DOMAIN,
                 "ORDER_PROFITABILITY_EVALUATED",
                 "order",
                 assessment.getOrderId(),
                 correlationId(assessment.getOrderId()),
                 assessment.getOrderId(),
+                null,
+                null,
+                null,
                 assessmentStatus(assessment),
                 assessmentSeverity(assessment),
                 SOURCE_SERVICE + " evaluated profitability for " + assessment.getOrderId(),
                 assessment.getCreatedAt(),
+                0,
+                0,
+                cursor(assessment.getCreatedAt(), "RTE-" + assessment.getAssessmentId()),
                 metadata);
     }
 
     private List<RuntimeEventResponse> fromWorkday(MarketWorkdaySnapshotEntity snapshot) {
         List<RuntimeEventResponse> events = new ArrayList<>();
-        events.add(workdayEvent(snapshot, "WORKDAY_COMPLETED", "completed", "normal"));
+        events.add(workdayEvent(snapshot, "WORKDAY_COMPLETED", "COMPLETED", "NORMAL"));
         if (snapshot.getBacklogCount() > 0) {
-            events.add(workdayEvent(snapshot, "CAPACITY_SHORTAGE_DETECTED", "delayed", "warning"));
-            events.add(workdayEvent(snapshot, "BACKLOG_INCREASED", "delayed", "warning"));
+            events.add(workdayEvent(snapshot, "CAPACITY_SHORTAGE_DETECTED", "DELAYED", "WARNING"));
+            events.add(workdayEvent(snapshot, "BACKLOG_INCREASED", "DELAYED", "WARNING"));
         }
         return events;
     }
@@ -220,17 +266,25 @@ public class RuntimeEventService {
         metadata.put("productivityScore", snapshot.getProductivityScore());
         return new RuntimeEventResponse(
                 "RTE-" + eventType + "-" + snapshot.getSnapshotId(),
+                "MARKET:" + eventType + ":" + snapshot.getSnapshotId(),
                 SOURCE_SERVICE,
+                null,
                 DOMAIN,
                 eventType,
                 "workday",
                 snapshot.getSnapshotId(),
                 correlationId(snapshot.getSnapshotId()),
                 snapshot.getSnapshotId(),
+                null,
+                null,
+                snapshot.getSnapshotId(),
                 status,
                 severity,
                 SOURCE_SERVICE + " " + eventType + " for " + snapshot.getSnapshotId(),
                 snapshot.getCreatedAt(),
+                0,
+                0,
+                cursor(snapshot.getCreatedAt(), "RTE-" + eventType + "-" + snapshot.getSnapshotId()),
                 metadata);
     }
 
@@ -248,17 +302,25 @@ public class RuntimeEventService {
         metadata.put("processedAt", event.getProcessedAt());
         return new RuntimeEventResponse(
                 event.getEventId(),
+                event.getIdempotencyKey(),
                 event.getSourceService(),
+                SOURCE_SERVICE,
                 DOMAIN,
                 event.getEventType(),
                 entityType(stringValue(payload.get("entityType")), event.getEventType()),
                 entityId,
                 stringValue(envelope.get("correlationId")),
                 stringValue(envelope.get("causationId")),
+                stringValue(envelope.get("simulationRunId")),
+                stringValue(envelope.get("settlementCycleId")),
+                stringValue(envelope.get("workdayId")),
                 status(event.getStatus()),
                 severity(event.getStatus()),
                 displayLabel("inbound", event.getEventType(), entityId),
                 instantValue(envelope.get("occurredAt")).orElse(event.getReceivedAt()),
+                intValue(envelope.get("hopCount"), 1),
+                intValue(envelope.get("maxHop"), 5),
+                cursor(instantValue(envelope.get("occurredAt")).orElse(event.getReceivedAt()), event.getEventId()),
                 metadata);
     }
 
@@ -306,28 +368,28 @@ public class RuntimeEventService {
     }
 
     private boolean isProjectedRevenueEvent(MarketRevenueEventEntity event) {
-        return event.getRevenueType() == RevenueType.CUSTOMER_DEMAND_CREATED
-                || event.getRevenueType() == RevenueType.PAYMENT_CAPTURED;
+        // PAYMENT_CAPTURED is projected from the Ledger outbox envelope so one order has one public payment event.
+        return event.getRevenueType() == RevenueType.CUSTOMER_DEMAND_CREATED;
     }
 
     private String assessmentStatus(OrderProfitabilityAssessmentEntity assessment) {
         if (assessment.getRecommendation() == ProfitabilityRecommendation.REVIEW_REQUIRED) {
-            return "approval_required";
+            return "WAITING";
         }
         if (assessment.getRecommendation() == ProfitabilityRecommendation.REJECT_RECOMMENDED) {
-            return "rejected";
+            return "FAILED";
         }
-        return "completed";
+        return "COMPLETED";
     }
 
     private String assessmentSeverity(OrderProfitabilityAssessmentEntity assessment) {
         if (assessment.getRecommendation() == ProfitabilityRecommendation.REJECT_RECOMMENDED) {
-            return "critical";
+            return "CRITICAL";
         }
         if (assessment.getRecommendation() == ProfitabilityRecommendation.REVIEW_REQUIRED) {
-            return "warning";
+            return "WARNING";
         }
-        return "normal";
+        return "NORMAL";
     }
 
     private String correlationId(String entityId) {
@@ -338,40 +400,40 @@ public class RuntimeEventService {
         if ("ORDER_REQUIRES_REVIEW".equals(eventType)
                 || "LOW_MARGIN_ORDER_DETECTED".equals(eventType)
                 || "HIGH_RISK_ORDER_DETECTED".equals(eventType)) {
-            return "approval_required";
+            return "WAITING";
         }
         return switch (status) {
-            case PENDING -> "waiting";
-            case PUBLISHED, DRY_RUN -> "completed";
-            case RETRY -> "delayed";
-            case FAILED -> "failed";
-            case SKIPPED -> "unavailable";
+            case PENDING -> "WAITING";
+            case PUBLISHED, DRY_RUN -> "COMPLETED";
+            case RETRY -> "DELAYED";
+            case FAILED -> "FAILED";
+            case SKIPPED -> "FAILED";
         };
     }
 
     private String status(MarketInboxStatus status) {
         return switch (status) {
-            case RECEIVED -> "waiting";
-            case PROCESSED, DUPLICATE -> "completed";
-            case REJECTED -> "rejected";
-            case FAILED -> "failed";
+            case RECEIVED -> "WAITING";
+            case PROCESSED, DUPLICATE -> "COMPLETED";
+            case REJECTED -> "FAILED";
+            case FAILED -> "FAILED";
         };
     }
 
     private String severity(OutboxStatus status) {
         return switch (status) {
-            case FAILED -> "critical";
-            case RETRY, SKIPPED -> "warning";
-            case PENDING -> "info";
-            case PUBLISHED, DRY_RUN -> "normal";
+            case FAILED -> "CRITICAL";
+            case RETRY, SKIPPED -> "WARNING";
+            case PENDING -> "INFO";
+            case PUBLISHED, DRY_RUN -> "NORMAL";
         };
     }
 
     private String severity(MarketInboxStatus status) {
         return switch (status) {
-            case FAILED, REJECTED -> "warning";
-            case RECEIVED -> "info";
-            case PROCESSED, DUPLICATE -> "normal";
+            case FAILED, REJECTED -> "WARNING";
+            case RECEIVED -> "INFO";
+            case PROCESSED, DUPLICATE -> "NORMAL";
         };
     }
 
@@ -405,5 +467,45 @@ public class RuntimeEventService {
             return 100;
         }
         return Math.min(limit, 500);
+    }
+
+    private boolean isAfter(RuntimeEventResponse event, Cursor cursor) {
+        if (event.occurredAt() == null || cursor == null) {
+            return false;
+        }
+        int timeComparison = event.occurredAt().compareTo(cursor.occurredAt());
+        return timeComparison > 0 || (timeComparison == 0 && event.eventId().compareTo(cursor.eventId()) > 0);
+    }
+
+    private String cursor(Instant occurredAt, String eventId) {
+        if (occurredAt == null || eventId == null) {
+            return null;
+        }
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                (occurredAt.toEpochMilli() + "|" + eventId).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private Cursor decodeCursor(String cursor) {
+        try {
+            String decoded = new String(Base64.getUrlDecoder().decode(cursor), StandardCharsets.UTF_8);
+            String[] parts = decoded.split("\\|", 2);
+            return new Cursor(Instant.ofEpochMilli(Long.parseLong(parts[0])), parts[1]);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid runtime event cursor");
+        }
+    }
+
+    private int intValue(Object value, int defaultValue) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return value == null ? defaultValue : Integer.parseInt(value.toString());
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private record Cursor(Instant occurredAt, String eventId) {
     }
 }

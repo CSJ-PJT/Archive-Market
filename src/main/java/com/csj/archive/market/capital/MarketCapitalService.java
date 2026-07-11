@@ -14,6 +14,7 @@ import com.csj.archive.market.revenue.RevenueType;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.Instant;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
@@ -112,12 +113,15 @@ public class MarketCapitalService {
     @Transactional(readOnly = true)
     public Map<String, Object> workforceSummary() {
         List<MarketWorkforceAllocationEntity> allocations = activeAllocations(DEFAULT_WORKDAY_ID);
-        long orderCount = orderRepository.count();
+        if (allocations.isEmpty()) {
+            return noData("No synthetic workforce allocation is available. Use the explicit allocation endpoint or startup seed.");
+        }
+        long orderCount = activeMarketProcessingOrderCount();
         long capacity = processingCapacity(allocations);
         long backlog = Math.max(0, orderCount - capacity);
         long usedCapacity = Math.min(orderCount, capacity);
         BigDecimal payroll = payrollCost(allocations);
-        return ordered(Map.of(
+        Map<String, Object> result = ordered(Map.of(
                 "roles", allocations,
                 "totalHeadcount", allocations.stream().mapToInt(MarketWorkforceAllocationEntity::getHeadcount).sum(),
                 "orderCount", orderCount,
@@ -127,12 +131,18 @@ public class MarketCapitalService {
                 "backlog", backlog,
                 "payrollCost", payroll,
                 "capacityUtilization", percentage(usedCapacity, Math.max(1, capacity))));
+        result.put("available", true);
+        result.put("status", "AVAILABLE");
+        return result;
     }
 
     @Transactional(readOnly = true)
     public Map<String, Object> capacitySummary() {
         Map<String, Object> workforce = workforceSummary();
-        return ordered(Map.of(
+        if (Boolean.FALSE.equals(workforce.get("available"))) {
+            return noData("No workforce allocation is available for capacity calculation.");
+        }
+        Map<String, Object> result = ordered(Map.of(
                 "serviceName", "Archive-Market",
                 "domain", "market",
                 "totalHeadcount", workforce.get("totalHeadcount"),
@@ -140,12 +150,18 @@ public class MarketCapitalService {
                 "usedCapacity", workforce.get("usedCapacity"),
                 "backlog", workforce.get("backlog"),
                 "capacityUtilization", workforce.get("capacityUtilization")));
+        result.put("available", true);
+        result.put("status", "AVAILABLE");
+        return result;
     }
 
     @Transactional(readOnly = true)
     public Map<String, Object> productivitySummary() {
         List<MarketWorkforceAllocationEntity> allocations = activeAllocations(DEFAULT_WORKDAY_ID);
-        long orderCount = orderRepository.count();
+        if (allocations.isEmpty()) {
+            return noData("No workforce allocation is available for productivity calculation.");
+        }
+        long orderCount = activeMarketProcessingOrderCount();
         long capacity = processingCapacity(allocations);
         long backlog = Math.max(0, orderCount - capacity);
         BigDecimal productivity = productivityScore(allocations, orderCount, capacity, backlog);
@@ -153,7 +169,7 @@ public class MarketCapitalService {
         BigDecimal cancellationRate = backlogPressure.multiply(BigDecimal.valueOf(0.30)).setScale(2, RoundingMode.HALF_UP);
         BigDecimal claimRate = backlogPressure.multiply(BigDecimal.valueOf(0.20)).setScale(2, RoundingMode.HALF_UP);
         BigDecimal delayRisk = backlogPressure.multiply(BigDecimal.valueOf(0.45)).min(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP);
-        return ordered(Map.of(
+        Map<String, Object> result = ordered(Map.of(
                 "productivityScore", productivity,
                 "revenueConversion", revenueConversion(orderCount, capacity),
                 "backlog", backlog,
@@ -162,6 +178,9 @@ public class MarketCapitalService {
                 "claimRate", claimRate,
                 "delayRisk", delayRisk,
                 "aiAgentRecommendation", recommendation(backlog, productivity, delayRisk)));
+        result.put("available", true);
+        result.put("status", "AVAILABLE");
+        return result;
     }
 
     @Transactional
@@ -231,6 +250,14 @@ public class MarketCapitalService {
         return result;
     }
 
+    @Transactional(readOnly = true)
+    public long oldestBacklogAgeSeconds() {
+        return snapshotRepository.findTopByOrderByWorkDateDescCreatedAtDesc()
+                .filter(snapshot -> snapshot.getBacklogCount() > 0)
+                .map(snapshot -> Math.max(0, Instant.now().getEpochSecond() - snapshot.getCreatedAt().getEpochSecond()))
+                .orElse(0L);
+    }
+
     @Transactional
     public synchronized void seedDefaults() {
         seedDefaults(DEFAULT_WORKDAY_ID);
@@ -272,6 +299,10 @@ public class MarketCapitalService {
 
     private List<MarketWorkforceAllocationEntity> activeAllocations(String workdayId) {
         return workforceRepository.findByWorkdayIdAndEnabledTrueOrderByWorkforceRoleAsc(normalizeWorkdayId(workdayId));
+    }
+
+    private long activeMarketProcessingOrderCount() {
+        return orderRepository.countByOrderStatusIn(List.of(OrderStatus.CREATED, OrderStatus.CONFIRMED));
     }
 
     private long processingCapacity(List<MarketWorkforceAllocationEntity> allocations) {
@@ -339,6 +370,15 @@ public class MarketCapitalService {
 
     private Map<String, Object> ordered(Map<String, Object> source) {
         return new LinkedHashMap<>(source);
+    }
+
+    private Map<String, Object> noData(String reason) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("available", false);
+        result.put("status", "NO_DATA");
+        result.put("reason", reason);
+        result.put("syntheticData", true);
+        return result;
     }
 
     private String normalizeWorkdayId(String workdayId) {

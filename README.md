@@ -119,6 +119,7 @@ curl.exe http://localhost:8094/api/operations/summary
 - `GET /api/operations/summary`
 - `GET /api/runtime/status`
 - `GET /api/runtime-events/recent?limit=100`
+- `GET /api/runtime-events/recent?after={cursor}&limit=100`
 - `GET /api/runtime-events/correlation/{correlationId}`
 - `GET /api/runtime-events/entity/{entityId}`
 
@@ -186,6 +187,10 @@ curl.exe http://localhost:8094/api/operations/summary
 - `GET /api/productivity/summary`
 - `GET /api/capacity/summary`
 - `POST /api/market-workforce/allocate`
+
+Runtime Mesh V1 계약은 [archive-runtime-mesh-contract.md](docs/archive-runtime-mesh-contract.md), ArchiveOS 수집/전송 방식은 [archiveos-realtime-integration.md](docs/archiveos-realtime-integration.md), 운영 점검은 [runtime-operations-runbook.md](docs/runtime-operations-runbook.md)를 참고한다. 이 조회 API들은 모두 read-only이며, workforce 데이터가 아직 없으면 임의의 0값 대신 `available=false`, `status=NO_DATA`를 반환한다.
+
+Runtime Balance separates gmv, recognizedRevenue, grossSalesEvents, totalExpense, operatingProfit, operatingMargin, cash, reserve, payable, workforce, and capacity metrics. GMV is order scale, not Market revenue or profit. Auto-run captures and requests production only for ACCEPT orders; review and rejection recommendations remain pending.
 
 ### Simulation
 

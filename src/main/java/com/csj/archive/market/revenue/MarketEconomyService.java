@@ -23,6 +23,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -333,21 +334,33 @@ public class MarketEconomyService {
         BigDecimal reserveBalance = costRepository.totalCostByTypes(RESERVE_COST_TYPES);
         BigDecimal outstandingPayables = costRepository.totalCostByTypes(PAYABLE_COST_TYPES);
         BigDecimal operatingProfit = recognizedRevenue.subtract(totalExpense);
+        BigDecimal operatingMargin = percentage(operatingProfit, recognizedRevenue);
         BigDecimal pendingSettlement = capturedPayment.multiply(BigDecimal.valueOf(0.18)).setScale(2, RoundingMode.HALF_UP);
         BigDecimal cashBalance = OPENING_CASH.add(recognizedRevenue)
                 .subtract(totalExpense)
                 .subtract(pendingSettlement)
                 .setScale(2, RoundingMode.HALF_UP);
+        Map<String, Object> workforce = capitalService.workforceSummary();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("gmv", gmv);
         result.put("grossSalesEvents", grossSalesEvents);
         result.put("recognizedRevenue", recognizedRevenue);
         result.put("totalExpense", totalExpense);
         result.put("operatingProfit", operatingProfit);
+        result.put("operatingMargin", operatingMargin);
         result.put("cashBalance", cashBalance);
         result.put("reserveBalance", reserveBalance);
         result.put("outstandingPayables", outstandingPayables);
         result.put("pendingSettlementAmount", pendingSettlement);
+        result.put("workforceCost", costByType(CostType.MARKET_PAYROLL_BOOKED));
+        result.put("productionPurchaseCost", costByType(CostType.PRODUCTION_PURCHASE_COST_INCURRED));
+        result.put("logisticsFulfillmentCost", costByType(CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED));
+        result.put("settlementAgencyFee", costByType(CostType.SETTLEMENT_AGENCY_FEE_INCURRED));
+        result.put("controlTowerFee", costByType(CostType.CONTROL_TOWER_FEE_INCURRED));
+        result.put("backlogCount", workforce.get("backlog"));
+        result.put("capacityUtilization", workforce.get("capacityUtilization"));
+        result.put("negativeProfitStreak", negativeProfitStreak(operatingProfit));
+        result.putAll(calculationMetadata());
         result.put("cashDeltaReason", cashDeltaReason(recognizedRevenue, totalExpense, pendingSettlement, cashBalance));
         result.put("topRevenueDrivers", topRevenueDrivers());
         result.put("topExpenseDrivers", topExpenseDrivers());
@@ -376,6 +389,55 @@ public class MarketEconomyService {
         return BigDecimal.valueOf(value)
                 .multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+    }
+
+    private Map<String, Object> calculationMetadata() {
+        List<Instant> earliest = List.of(
+                orderRepository.findEarliestCreatedAt(),
+                revenueRepository.findEarliestCreatedAt(),
+                costRepository.findEarliestCreatedAt()).stream()
+                .flatMap(Optional::stream)
+                .toList();
+        List<Instant> latest = List.of(
+                orderRepository.findLatestCreatedAt(),
+                revenueRepository.findLatestCreatedAt(),
+                costRepository.findLatestCreatedAt()).stream()
+                .flatMap(Optional::stream)
+                .toList();
+        Instant calculatedAt = Instant.now(clock);
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("calculationScope", "LIFETIME");
+        metadata.put("periodStart", earliest.stream().min(Instant::compareTo).orElse(null));
+        metadata.put("periodEnd", latest.stream().max(Instant::compareTo).orElse(null));
+        metadata.put("calculatedAt", calculatedAt);
+        metadata.put("dataAvailable", !earliest.isEmpty());
+        return metadata;
+    }
+
+    private BigDecimal percentage(BigDecimal value, BigDecimal total) {
+        if (total == null || total.signum() == 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return value.multiply(BigDecimal.valueOf(100))
+                .divide(total, 2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal costByType(CostType costType) {
+        return costRepository.totalCostByTypes(List.of(costType));
+    }
+
+    private long negativeProfitStreak(BigDecimal currentOperatingProfit) {
+        if (currentOperatingProfit.signum() >= 0) {
+            return 0;
+        }
+        long recordedStreak = 0;
+        for (MarketDailyCloseEntity close : dailyCloseRepository.findAllByOrderByCloseDateDescCreatedAtDesc()) {
+            if (close.getTotalProfit().signum() >= 0) {
+                break;
+            }
+            recordedStreak++;
+        }
+        return recordedStreak == 0 ? 1 : recordedStreak;
     }
 
     private void recordAndEnqueueCost(MarketOrderEntity order, String simulationRunId, CostType costType,

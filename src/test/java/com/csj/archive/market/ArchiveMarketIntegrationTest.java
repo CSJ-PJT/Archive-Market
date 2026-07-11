@@ -198,6 +198,18 @@ class ArchiveMarketIntegrationTest {
                 .andExpect(jsonPath("$.data.economy.recognizedRevenue").exists())
                 .andExpect(jsonPath("$.data.economy.totalExpense").exists())
                 .andExpect(jsonPath("$.data.economy.operatingProfit").exists())
+                .andExpect(jsonPath("$.data.economy.operatingMargin").exists())
+                .andExpect(jsonPath("$.data.economy.calculationScope").value("LIFETIME"))
+                .andExpect(jsonPath("$.data.economy.periodStart").exists())
+                .andExpect(jsonPath("$.data.economy.periodEnd").exists())
+                .andExpect(jsonPath("$.data.economy.calculatedAt").exists())
+                .andExpect(jsonPath("$.data.economy.dataAvailable").value(true))
+                .andExpect(jsonPath("$.data.economy.workforceCost").exists())
+                .andExpect(jsonPath("$.data.economy.productionPurchaseCost").exists())
+                .andExpect(jsonPath("$.data.economy.logisticsFulfillmentCost").exists())
+                .andExpect(jsonPath("$.data.economy.settlementAgencyFee").exists())
+                .andExpect(jsonPath("$.data.economy.controlTowerFee").exists())
+                .andExpect(jsonPath("$.data.economy.negativeProfitStreak").exists())
                 .andExpect(jsonPath("$.data.economy.reserveBalance").exists())
                 .andExpect(jsonPath("$.data.economy.outstandingPayables").exists())
                 .andExpect(jsonPath("$.data.economy.cashDeltaReason").exists())
@@ -219,7 +231,15 @@ class ArchiveMarketIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data[0].sourceService").exists())
                 .andExpect(jsonPath("$.data[0].eventType").exists())
-                .andExpect(jsonPath("$.data[0].correlationId").exists());
+                .andExpect(jsonPath("$.data[0].correlationId").exists())
+                .andExpect(jsonPath("$.data[0].idempotencyKey").exists())
+                .andExpect(jsonPath("$.data[0].cursor").exists());
+
+        String latestCursor = runtimeEventService.recent(1).getFirst().cursor();
+        long outboxBeforeCursorRead = outboxRepository.count();
+        mockMvc.perform(get("/api/runtime-events/recent").param("after", latestCursor).param("limit", "20"))
+                .andExpect(status().isOk());
+        assertThat(outboxRepository.count()).isEqualTo(outboxBeforeCursorRead);
 
         mockMvc.perform(get("/api/runtime-events/correlation/CORR-TEST"))
                 .andExpect(status().isOk());
@@ -230,6 +250,9 @@ class ArchiveMarketIntegrationTest {
                 .extracting("eventType")
                 .contains("CUSTOMER_DEMAND_CREATED", "MARKET_ORDER_PLACED", "PAYMENT_CAPTURED",
                         "ORDER_PROFITABILITY_EVALUATED");
+        assertThat(runtimeEventService.byEntityId(discountedOrder.getOrderId()).stream()
+                .filter(event -> event.eventType().equals("PAYMENT_CAPTURED"))
+                .count()).isEqualTo(1);
 
         mockMvc.perform(post("/api/simulations/orders").param("count", "10"))
                 .andExpect(status().isOk());
@@ -408,6 +431,19 @@ class ArchiveMarketIntegrationTest {
         assertThat(firstTick.lastEventAt()).isNotNull();
         assertThat(orderRepository.count()).isGreaterThan(ordersBefore);
         assertThat(outboxRepository.count()).isGreaterThan(outboxBefore);
+        MarketOrderEntity autoRunOrder = orderRepository.findAll().stream()
+                .max(java.util.Comparator.comparing(MarketOrderEntity::getId))
+                .orElseThrow();
+        OrderProfitabilityAssessmentEntity autoRunAssessment = profitabilityService.get(autoRunOrder.getOrderId());
+        if (autoRunAssessment.getRecommendation() == ProfitabilityRecommendation.ACCEPT) {
+            assertThat(paymentRepository.findByOrderId(autoRunOrder.getOrderId()))
+                    .isPresent()
+                    .get()
+                    .extracting("paymentStatus")
+                    .isEqualTo(PaymentStatus.CAPTURED);
+        } else {
+            assertThat(paymentRepository.findByOrderId(autoRunOrder.getOrderId())).isEmpty();
+        }
 
         long ordersAfterFirstTick = orderRepository.count();
         var duplicateTick = runtimeAutoRunService.runTick();
@@ -422,7 +458,9 @@ class ArchiveMarketIntegrationTest {
         mockMvc.perform(get("/api/runtime/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.lastWorkAt").exists())
-                .andExpect(jsonPath("$.data.lastEventAt").exists());
+                .andExpect(jsonPath("$.data.lastEventAt").exists())
+                .andExpect(jsonPath("$.data.latestCursor").exists())
+                .andExpect(jsonPath("$.data.oldestBacklogAgeSeconds").exists());
         assertThat(orderRepository.count()).isEqualTo(ordersBeforeSummary);
     }
 

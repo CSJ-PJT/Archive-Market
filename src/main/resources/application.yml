@@ -48,8 +48,9 @@ market:
       publish-path: /api/events/external
     archiveos:
       base-url: ${ARCHIVEOS_BASE_URL:http://host.docker.internal:5173}
-      publish-path: /api/ecosystem/events
+      publish-path: ${ARCHIVEOS_PUBLISH_PATH:/api/live-flow/events/ingest}
   outbox:
+    max-retry-count: ${MARKET_OUTBOX_MAX_RETRY_COUNT:5}
     scheduler:
       enabled: false
 

@@ -19,16 +19,19 @@ public class MarketOutboxPublisher {
     private final ArchiveOsClient archiveOsClient;
     private final Clock clock;
     private final boolean integrationEnabled;
+    private final int maxRetryCount;
 
     public MarketOutboxPublisher(MarketOutboxRepository outboxRepository, NexusClient nexusClient,
                                  LedgerClient ledgerClient, ArchiveOsClient archiveOsClient, Clock clock,
-                                 @Value("${market.integration.enabled:false}") boolean integrationEnabled) {
+                                 @Value("${market.integration.enabled:false}") boolean integrationEnabled,
+                                 @Value("${market.outbox.max-retry-count:5}") int maxRetryCount) {
         this.outboxRepository = outboxRepository;
         this.nexusClient = nexusClient;
         this.ledgerClient = ledgerClient;
         this.archiveOsClient = archiveOsClient;
         this.clock = clock;
         this.integrationEnabled = integrationEnabled;
+        this.maxRetryCount = Math.max(1, maxRetryCount);
     }
 
     @Transactional
@@ -52,9 +55,22 @@ public class MarketOutboxPublisher {
                     event.markPublished(now);
                 }
             } catch (RuntimeException ex) {
-                event.markFailed(ex.getMessage(), now.plusSeconds(60));
+                if (event.getRetryCount() + 1 >= maxRetryCount) {
+                    event.markSkipped(now, "Retry limit reached: " + safeMessage(ex));
+                } else {
+                    event.markFailed(safeMessage(ex), now.plusSeconds(backoffSeconds(event.getRetryCount())));
+                }
             }
         }
         return events;
+    }
+
+    private long backoffSeconds(int retryCount) {
+        return Math.min(300, 30L * (1L << Math.min(retryCount, 3)));
+    }
+
+    private String safeMessage(RuntimeException ex) {
+        String message = ex.getMessage();
+        return message == null || message.isBlank() ? ex.getClass().getSimpleName() : message.substring(0, Math.min(300, message.length()));
     }
 }
