@@ -15,7 +15,6 @@ const dictionaries = {
     "header.title": "Market 커머스 관제 보드",
     "header.description": "Nexus, Ledger, ArchiveOS 연동을 위한 수요, 주문, 매출, 리스크, outbox, 외부 이벤트 상태를 관제합니다.",
     "action.refresh": "새로고침",
-    "action.simulate": "주문 100건 시뮬레이션",
     "action.publish": "Outbox 발행",
     "action.sampleInbox": "샘플 이벤트 수신",
     "metric.health": "상태",
@@ -46,7 +45,6 @@ const dictionaries = {
     "state.loading": "로딩 중",
     "state.empty": "아직 주문이 없습니다",
     "toast.refreshed": "대시보드 데이터를 갱신했습니다.",
-    "toast.simulated": "주문 시뮬레이션이 완료되었습니다.",
     "toast.published": "Outbox 발행 요청이 처리되었습니다.",
     "toast.inbox": "샘플 외부 이벤트를 수신했습니다.",
     "label.orders": "주문",
@@ -73,7 +71,6 @@ const dictionaries = {
     "sidebar.noteBody": "No real customer, payment, address, carrier, or financial data is used.",
     "header.description": "Monitor demand, orders, revenue, risk, outbox, and inbound event state for Nexus, Ledger, and ArchiveOS integration.",
     "action.refresh": "Refresh",
-    "action.simulate": "Simulate 100 Orders",
     "action.publish": "Publish Outbox",
     "action.sampleInbox": "Send Sample Event",
     "metric.health": "Health",
@@ -104,7 +101,6 @@ const dictionaries = {
     "state.loading": "Loading",
     "state.empty": "No orders yet",
     "toast.refreshed": "Dashboard data was refreshed.",
-    "toast.simulated": "Order simulation completed.",
     "toast.published": "Outbox publish request was processed.",
     "toast.inbox": "Sample external event was received.",
     "label.orders": "Orders",
@@ -131,7 +127,6 @@ const dictionaries = {
     "header.title": "Market コマース管理ボード",
     "header.description": "Nexus、Ledger、ArchiveOS 連携のために需要、注文、収益、リスク、outbox、外部イベントを監視します。",
     "action.refresh": "更新",
-    "action.simulate": "注文100件をシミュレート",
     "action.publish": "Outbox 発行",
     "action.sampleInbox": "サンプルイベント受信",
     "metric.health": "Health",
@@ -162,7 +157,6 @@ const dictionaries = {
     "state.loading": "読み込み中",
     "state.empty": "注文はまだありません",
     "toast.refreshed": "ダッシュボードデータを更新しました。",
-    "toast.simulated": "注文シミュレーションが完了しました。",
     "toast.published": "Outbox 発行リクエストを処理しました。",
     "toast.inbox": "サンプル外部イベントを受信しました。",
     "label.orders": "注文",
@@ -189,7 +183,6 @@ const dictionaries = {
     "header.title": "Market 商务控制面板",
     "header.description": "监控面向 Nexus、Ledger、ArchiveOS 集成的需求、订单、收入、风险、outbox 与外部事件状态。",
     "action.refresh": "刷新",
-    "action.simulate": "模拟 100 笔订单",
     "action.publish": "发布 Outbox",
     "action.sampleInbox": "发送示例事件",
     "metric.health": "Health",
@@ -220,7 +213,6 @@ const dictionaries = {
     "state.loading": "加载中",
     "state.empty": "暂无订单",
     "toast.refreshed": "仪表盘数据已刷新。",
-    "toast.simulated": "订单模拟已完成。",
     "toast.published": "Outbox 发布请求已处理。",
     "toast.inbox": "已接收示例外部事件。",
     "label.orders": "订单",
@@ -313,11 +305,6 @@ function bindActions() {
   $("refreshButton").addEventListener("click", async () => {
     await refreshAll();
     toast(t("toast.refreshed"));
-  });
-  $("simulateButton").addEventListener("click", async () => {
-    await api("/api/simulations/orders?count=100", { method: "POST" });
-    await refreshAll();
-    toast(t("toast.simulated"));
   });
   $("publishButton").addEventListener("click", async () => {
     await api("/api/outbox/publish", { method: "POST" });
