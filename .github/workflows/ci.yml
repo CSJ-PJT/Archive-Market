@@ -33,3 +33,42 @@ jobs:
 
       - name: Docker build
         run: docker build -t archive-market:ci .
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          REPOSITORY: ${{ github.repository }}
+          WORKFLOW: ${{ github.workflow }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL secret is not configured. Skipping Slack notification."
+            exit 0
+          fi
+
+          SHORT_SHA="$(echo "$SHA" | cut -c1-7)"
+          RUN_URL="https://github.com/$REPOSITORY/actions/runs/$RUN_ID"
+          export MESSAGE=":rotating_light: *Archive-Market CI 실패*
+          • Repository: \`$REPOSITORY\`
+          • Workflow: \`$WORKFLOW #$RUN_NUMBER\`
+          • Branch: \`$BRANCH\`
+          • Commit: \`$SHORT_SHA\`
+          • Actor: \`$ACTOR\`
+          • Run: $RUN_URL"
+
+          python - <<'PY' > /tmp/slack_payload.json
+          import json
+          import os
+
+          print(json.dumps({"text": os.environ["MESSAGE"]}, ensure_ascii=False))
+          PY
+
+          curl -sS -X POST \
+            -H 'Content-Type: application/json' \
+            --data @/tmp/slack_payload.json \
+            "$SLACK_WEBHOOK_URL"
