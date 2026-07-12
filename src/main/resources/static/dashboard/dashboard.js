@@ -255,6 +255,12 @@ const state = {
   locale: readLocale(),
   operations: null,
   economy: null,
+  runtime: null,
+  runtimeEvents: [],
+  cashflow: null,
+  workforce: null,
+  capacity: null,
+  profitability: null,
   outbox: {},
   inbox: [],
   orders: []
@@ -311,22 +317,19 @@ function bindActions() {
     await refreshAll();
     toast(t("toast.published"));
   });
-  $("sampleInboxButton").addEventListener("click", async () => {
-    await api("/api/events/external", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(sampleExternalEvent())
-    });
-    await refreshAll();
-    toast(t("toast.inbox"));
-  });
 }
 
 async function refreshAll() {
-  const [health, operations, economy, outbox, inbox, orders] = await Promise.allSettled([
+  const [health, operations, economy, runtime, runtimeEvents, cashflow, workforce, capacity, profitability, outbox, inbox, orders] = await Promise.allSettled([
     fetch("/actuator/health").then((response) => response.json()),
     api("/api/operations/summary"),
     api("/api/market-economy/summary"),
+    api("/api/runtime/status"),
+    api("/api/runtime-events/recent?limit=8"),
+    api("/api/market-cashflow/summary"),
+    api("/api/workforce/summary"),
+    api("/api/capacity/summary"),
+    api("/api/market-profitability/summary"),
     api("/api/outbox/summary"),
     api("/api/events/inbox"),
     api("/api/orders?size=8&sort=createdAt,desc")
@@ -334,6 +337,12 @@ async function refreshAll() {
   state.health = unwrap(health);
   state.operations = unwrap(operations);
   state.economy = unwrap(economy);
+  state.runtime = unwrap(runtime);
+  state.runtimeEvents = unwrap(runtimeEvents) || [];
+  state.cashflow = unwrap(cashflow);
+  state.workforce = unwrap(workforce);
+  state.capacity = unwrap(capacity);
+  state.profitability = unwrap(profitability);
   state.outbox = unwrap(outbox) || {};
   state.inbox = unwrap(inbox) || [];
   state.orders = unwrap(orders)?.content || [];
@@ -353,6 +362,9 @@ function unwrap(result) {
 
 function renderAll() {
   renderMetrics();
+  renderRuntime();
+  renderBalance();
+  renderCapitalAndWorkforce();
   renderOperations();
   renderRisk();
   renderOrders();
@@ -362,14 +374,98 @@ function renderAll() {
 
 function renderMetrics() {
   const economy = state.economy?.economy || {};
+  const runtime = state.runtime || state.operations?.runtime || {};
   $("healthStatus").textContent = state.health?.status || state.operations?.status || "-";
   $("updatedAt").textContent = new Intl.DateTimeFormat(toIntlLocale(), { dateStyle: "short", timeStyle: "medium" }).format(new Date());
-  $("totalRevenue").textContent = money(economy.totalRevenue);
-  $("profitAmount").textContent = money(economy.profit);
+  $("gmvAmount").textContent = money(economy.gmv);
+  $("recognizedRevenue").textContent = money(economy.recognizedRevenue);
+  $("calculationScope").textContent = economy.calculationScope || "-";
+  $("profitAmount").textContent = money(economy.operatingProfit ?? economy.profit);
+  $("operatingMargin").textContent = `Margin ${number(economy.operatingMargin)}%`;
+  $("cashBalance").textContent = money(economy.cashBalance);
   $("bankruptcyRisk").textContent = `Bankruptcy risk: ${economy.bankruptcyRisk || "-"}`;
+  $("runtimeBacklog").textContent = number(runtime.backlogCount ?? economy.backlogCount);
+  $("runtimePipeline").textContent = runtime.pipelineStatus || "NO_DATA";
   $("outboxPending").textContent = number(state.outbox.PENDING || state.outbox.pending || 0);
   $("outboxDryRun").textContent = `DRY_RUN ${number(state.outbox.DRY_RUN || state.outbox.dry_run || 0)}`;
   $("serviceStatus").textContent = state.operations?.status || state.economy?.status || "-";
+}
+
+function renderRuntime() {
+  const runtime = state.runtime || state.operations?.runtime || {};
+  $("runtimeStatus").textContent = runtime.pipelineStatus || "NO_DATA";
+  const rows = [
+    ["Scheduler", runtime.schedulerStatus || "-"],
+    ["Last work", dateTime(runtime.lastWorkAt)],
+    ["Last event", dateTime(runtime.lastEventAt)],
+    ["Events / tick", number(runtime.eventsProducedLastTick)],
+    ["Backlog", number(runtime.backlogCount)],
+    ["Oldest backlog", `${number(runtime.oldestBacklogAgeSeconds)} sec`],
+    ["Cursor", shortId(runtime.latestCursor)],
+    ["Degraded", runtime.degradedReason || "NONE"]
+  ];
+  $("runtimeList").innerHTML = summaryRows(rows);
+  $("runtimeEventList").innerHTML = state.runtimeEvents.length
+    ? state.runtimeEvents.map((event) => `
+      <article class="event-item severity-${String(event.severity || "INFO").toLowerCase()}">
+        <div><strong>${escapeHtml(event.eventType || "-")}</strong><span>${escapeHtml(event.status || "-")}</span></div>
+        <p>${escapeHtml(event.displayLabel || event.entityId || "-")}</p>
+        <small>${escapeHtml(event.entityId || "-")} · ${dateTime(event.occurredAt)}</small>
+      </article>
+    `).join("")
+    : `<p class="empty-state">${t("state.empty")}</p>`;
+}
+
+function renderBalance() {
+  const economy = state.economy?.economy || {};
+  const cards = [
+    ["Total expense", money(economy.totalExpense)],
+    ["Reserve balance", money(economy.reserveBalance)],
+    ["Outstanding payables", money(economy.outstandingPayables)],
+    ["Pending settlement", money(economy.pendingSettlementAmount)],
+    ["Negative profit streak", number(economy.negativeProfitStreak)],
+    ["Capacity utilization", `${number(economy.capacityUtilization)}%`]
+  ];
+  $("balanceGrid").innerHTML = cards.map(([label, value]) => `
+    <div class="balance-card"><span>${label}</span><strong>${value}</strong></div>
+  `).join("");
+  $("costDriverList").innerHTML = summaryRows([
+    ["Production purchase", money(economy.productionPurchaseCost)],
+    ["Logistics fulfillment", money(economy.logisticsFulfillmentCost)],
+    ["Settlement agency", money(economy.settlementAgencyFee)],
+    ["Control tower", money(economy.controlTowerFee)],
+    ["Workforce payroll", money(economy.workforceCost)]
+  ]);
+  $("calculationList").innerHTML = summaryRows([
+    ["Scope", economy.calculationScope || "NO_DATA"],
+    ["Period start", dateTime(economy.periodStart)],
+    ["Period end", dateTime(economy.periodEnd)],
+    ["Calculated", dateTime(economy.calculatedAt)],
+    ["Data available", economy.dataAvailable === true ? "YES" : "NO"]
+  ]);
+}
+
+function renderCapitalAndWorkforce() {
+  const cashflow = state.cashflow || state.operations?.cashflow || {};
+  const workforce = state.workforce || state.operations?.workforce || {};
+  const capacity = state.capacity || {};
+  const profitability = state.profitability || state.operations?.profitability || {};
+  $("cashflowList").innerHTML = summaryRows([
+    ["Available cash", money(cashflow.availableCash)],
+    ["Expected receivable", money(cashflow.expectedReceivable)],
+    ["Pending settlement", money(cashflow.pendingSettlementAmount)],
+    ["Outstanding payables", money(cashflow.outstandingPayables)],
+    ["Net profit", money(cashflow.netProfit)],
+    ["Reserve balance", money(cashflow.reserveBalance)]
+  ]);
+  $("workforceList").innerHTML = summaryRows([
+    ["Headcount", number(workforce.totalHeadcount)],
+    ["Effective capacity", number(capacity.effectiveCapacity ?? workforce.effectiveCapacity)],
+    ["Used capacity", number(capacity.usedCapacity ?? workforce.usedCapacity)],
+    ["Backlog", number(capacity.backlog ?? workforce.backlog)],
+    ["Utilization", `${number(capacity.capacityUtilization ?? workforce.capacityUtilization)}%`],
+    ["Review required", number(profitability.reviewRequired ?? profitability.reviewRequiredOrders)]
+  ]);
 }
 
 function renderOperations() {
@@ -385,7 +481,7 @@ function renderOperations() {
     [t("label.cash"), money(economy.cashBalance)],
     [t("label.burn"), money(economy.burnRate)]
   ];
-  $("operationsList").innerHTML = rows.map(([key, value]) => `<div><dt>${key}</dt><dd>${value}</dd></div>`).join("");
+  $("operationsList").innerHTML = summaryRows(rows);
 }
 
 function renderRisk() {
@@ -433,7 +529,7 @@ function renderInbox() {
     [t("label.inboxProcessed"), counts.PROCESSED || 0],
     [t("label.inboxRejected"), counts.REJECTED || 0]
   ];
-  $("inboxList").innerHTML = rows.map(([key, value]) => `<div><dt>${key}</dt><dd>${number(value)}</dd></div>`).join("");
+  $("inboxList").innerHTML = summaryRows(rows.map(([key, value]) => [key, number(value)]));
 }
 
 function renderContracts() {
@@ -463,30 +559,6 @@ function renderContracts() {
   }).join("");
 }
 
-function sampleExternalEvent() {
-  const suffix = Date.now();
-  return {
-    eventId: `EXT-MARKET-DASH-${suffix}`,
-    idempotencyKey: `DASHBOARD:PAYMENT_SETTLED:${suffix}`,
-    source: "Archive-Ledger",
-    eventType: "PAYMENT_SETTLED",
-    schemaVersion: 1,
-    occurredAt: new Date().toISOString(),
-    simulationRunId: "SIM-DASHBOARD",
-    settlementCycleId: "SETTLEMENT-DASHBOARD",
-    correlationId: `CORR-DASH-${suffix}`,
-    causationId: "DASHBOARD",
-    hopCount: 1,
-    maxHop: 5,
-    payload: {
-      orderId: "ORD-DASHBOARD-SAMPLE",
-      amount: 10000,
-      currency: "KRW",
-      synthetic: true
-    }
-  };
-}
-
 function setMeter(meterId, value, textId, text) {
   $(meterId).value = Number(value) || 0;
   $(textId).textContent = text;
@@ -499,6 +571,23 @@ function money(value) {
 
 function number(value) {
   return new Intl.NumberFormat(toIntlLocale(), { maximumFractionDigits: 2 }).format(Number(value || 0));
+}
+
+function summaryRows(rows) {
+  return rows.map(([key, value]) => `<div><dt>${escapeHtml(key)}</dt><dd>${escapeHtml(value)}</dd></div>`).join("");
+}
+
+function dateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "-"
+    : new Intl.DateTimeFormat(toIntlLocale(), { dateStyle: "short", timeStyle: "medium" }).format(date);
+}
+
+function shortId(value) {
+  if (!value) return "-";
+  return value.length > 26 ? `${value.slice(0, 14)}...${value.slice(-8)}` : value;
 }
 
 function toIntlLocale() {

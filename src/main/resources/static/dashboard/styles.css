@@ -215,7 +215,7 @@ button:hover {
 }
 
 .metrics {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .two {
@@ -245,8 +245,9 @@ button:hover {
 }
 
 .metric strong {
-  font-size: 28px;
+  font-size: clamp(20px, 1.7vw, 28px);
   line-height: 1.12;
+  overflow-wrap: anywhere;
 }
 
 .panel {
@@ -360,6 +361,107 @@ th {
   font-size: 20px;
 }
 
+.balance-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.balance-card {
+  min-height: 92px;
+  padding: 14px;
+  display: grid;
+  align-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--cyan);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.balance-card span,
+.event-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.balance-card strong {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.driver-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.driver-grid h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.compact {
+  gap: 7px;
+}
+
+.compact div {
+  padding: 9px 10px;
+}
+
+.event-list {
+  display: grid;
+  gap: 8px;
+  max-height: 330px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.event-item {
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--steel);
+  border-radius: 8px;
+  background: var(--surface-strong);
+}
+
+.event-item > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.event-item > div span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.event-item p {
+  margin: 6px 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.severity-warning {
+  border-left-color: var(--amber);
+}
+
+.severity-critical {
+  border-left-color: var(--red);
+}
+
+.severity-normal {
+  border-left-color: var(--green);
+}
+
+.empty-state {
+  margin: 0;
+  color: var(--muted);
+}
+
 .contract-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -432,10 +534,18 @@ pre {
     height: auto;
   }
 
-  .metrics,
+  .metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .two,
-  .contract-grid {
+  .contract-grid,
+  .driver-grid {
     grid-template-columns: 1fr;
+  }
+
+  .balance-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .topbar {
@@ -469,6 +579,11 @@ pre {
   }
 
   .status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics,
+  .balance-grid {
     grid-template-columns: 1fr;
   }
 }
