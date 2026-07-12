@@ -26,6 +26,8 @@ import com.csj.archive.market.order.MarketOrderRepository;
 import com.csj.archive.market.order.MarketOrderService;
 import com.csj.archive.market.outbox.MarketOutboxPublisher;
 import com.csj.archive.market.outbox.MarketOutboxRepository;
+import com.csj.archive.market.outbox.MarketOutboxService;
+import com.csj.archive.market.outbox.OutboxTargetService;
 import com.csj.archive.market.outbox.OutboxStatus;
 import com.csj.archive.market.payment.MarketPaymentRepository;
 import com.csj.archive.market.payment.PaymentService;
@@ -47,6 +49,8 @@ import com.csj.archive.market.revenue.RevenueType;
 import com.csj.archive.market.runtime.RuntimeAutoRunService;
 import com.csj.archive.market.runtime.RuntimeEventService;
 import com.csj.archive.market.simulation.MarketSimulationService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.EnumMap;
@@ -99,6 +103,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired RuntimeAutoRunService runtimeAutoRunService;
     @Autowired RuntimeEventService runtimeEventService;
     @Autowired MarketOutboxPublisher outboxPublisher;
+    @Autowired MarketOutboxService outboxService;
     @Autowired MarketOrderRepository orderRepository;
     @Autowired MarketPaymentRepository paymentRepository;
     @Autowired MarketRevenueEventRepository revenueRepository;
@@ -110,6 +115,7 @@ class ArchiveMarketIntegrationTest {
     @Autowired ProfitabilityCostComponentAdjustmentRepository costAdjustmentRepository;
     @Autowired MarketWorkdaySnapshotRepository workdaySnapshotRepository;
     @Autowired MarketWorkforceAllocationRepository workforceAllocationRepository;
+    @Autowired ObjectMapper objectMapper;
     @Autowired MockMvc mockMvc;
 
     @Test
@@ -258,6 +264,111 @@ class ArchiveMarketIntegrationTest {
                 .andExpect(status().isOk());
         mockMvc.perform(get("/api/operations/summary")).andExpect(status().isOk());
         mockMvc.perform(get("/api/market-economy/summary")).andExpect(status().isOk());
+    }
+
+    @Test
+    void newOrderKeepsOneRootCorrelationAcrossMarketEventsAndDownstreamPayloads() throws Exception {
+        ProductEntity product = productService.seed().getFirst();
+        CustomerEntity customer = customerService.createSynthetic(0);
+
+        MarketOrderEntity order = orderService.create(new CreateOrderRequest(
+                customer.getCustomerId(), product.getProductId(), 1, false));
+        String rootCorrelationId = order.getRootCorrelationId();
+        assertThat(rootCorrelationId).startsWith("CORR-");
+
+        orderService.confirm(order.getOrderId());
+        paymentService.capture(order.getOrderId());
+
+        List<com.csj.archive.market.outbox.MarketOutboxEntity> orderEvents = outboxRepository.findAll().stream()
+                .filter(event -> event.getAggregateId().equals(order.getOrderId()))
+                .toList();
+        assertThat(orderEvents).isNotEmpty();
+        assertThat(orderEvents).extracting(com.csj.archive.market.outbox.MarketOutboxEntity::getEventId)
+                .doesNotHaveDuplicates();
+
+        List<JsonNode> envelopes = orderEvents.stream()
+                .map(event -> readJson(event.getPayload()))
+                .toList();
+        assertThat(envelopes).allSatisfy(envelope -> {
+            assertThat(envelope.path("eventId").asText()).isNotBlank();
+            assertThat(envelope.path("correlationId").asText()).isEqualTo(rootCorrelationId);
+            assertThat(envelope.path("orderId").asText()).isEqualTo(order.getOrderId());
+            assertThat(envelope.path("entityId").asText()).isEqualTo(order.getOrderId());
+            assertThat(envelope.has("simulationRunId")).isTrue();
+            assertThat(envelope.has("workdayId")).isTrue();
+            assertThat(envelope.has("settlementCycleId")).isTrue();
+
+            JsonNode payload = envelope.path("payload");
+            assertThat(payload.path("eventId").asText()).isEqualTo(envelope.path("eventId").asText());
+            assertThat(payload.path("correlationId").asText()).isEqualTo(rootCorrelationId);
+            assertThat(payload.path("orderId").asText()).isEqualTo(order.getOrderId());
+            assertThat(payload.path("entityId").asText()).isEqualTo(order.getOrderId());
+            assertThat(payload.has("simulationRunId")).isTrue();
+            assertThat(payload.has("workdayId")).isTrue();
+            assertThat(payload.has("settlementCycleId")).isTrue();
+        });
+
+        String demandEventId = revenueRepository.findAll().stream()
+                .filter(event -> event.getOrderId().equals(order.getOrderId()))
+                .filter(event -> event.getRevenueType() == RevenueType.CUSTOMER_DEMAND_CREATED)
+                .findFirst()
+                .orElseThrow()
+                .getEventId();
+        String orderPlacedEventId = revenueRepository.findAll().stream()
+                .filter(event -> event.getOrderId().equals(order.getOrderId()))
+                .filter(event -> event.getRevenueType() == RevenueType.SALES_ORDER_PLACED)
+                .findFirst()
+                .orElseThrow()
+                .getEventId();
+        String confirmationEventId = revenueRepository.findAll().stream()
+                .filter(event -> event.getOrderId().equals(order.getOrderId()))
+                .filter(event -> event.getRevenueType() == RevenueType.SALES_ORDER_CONFIRMED)
+                .findFirst()
+                .orElseThrow()
+                .getEventId();
+        String paymentEventId = revenueRepository.findAll().stream()
+                .filter(event -> event.getOrderId().equals(order.getOrderId()))
+                .filter(event -> event.getRevenueType() == RevenueType.PAYMENT_CAPTURED)
+                .findFirst()
+                .orElseThrow()
+                .getEventId();
+
+        assertThat(envelopeFor(orderEvents, "MARKET_ORDER_PLACED").path("causationId").asText())
+                .isEqualTo(demandEventId);
+        assertThat(envelopeFor(orderEvents, "PRODUCTION_REQUESTED").path("causationId").asText())
+                .isEqualTo(confirmationEventId);
+        assertThat(envelopeFor(orderEvents, "SHIPMENT_REQUESTED").path("causationId").asText())
+                .isEqualTo(confirmationEventId);
+        assertThat(envelopeFor(orderEvents, "PAYMENT_CAPTURED").path("causationId").asText())
+                .isEqualTo(paymentEventId);
+        assertThat(envelopeFor(orderEvents, "SALES_REVENUE_CONFIRMED").path("causationId").asText())
+                .isEqualTo(paymentEventId);
+
+        assertThat(runtimeEventService.byEntityId(order.getOrderId()).stream()
+                .filter(event -> event.eventType().equals("ORDER_PROFITABILITY_EVALUATED"))
+                .findFirst()
+                .orElseThrow()
+                .causationId()).isEqualTo(orderPlacedEventId);
+
+        assertThat(orderEvents.stream().filter(event -> event.getEventType().equals("PAYMENT_CAPTURED")).count())
+                .isEqualTo(1);
+        assertThat(revenueRepository.findAll().stream()
+                .filter(event -> event.getOrderId().equals(order.getOrderId()))
+                .filter(event -> event.getRevenueType() == RevenueType.PAYMENT_CAPTURED)
+                .count()).isEqualTo(1);
+        assertThat(orderEvents.stream()
+                .filter(event -> event.getTargetService().name().equals("NEXUS"))
+                .map(event -> readJson(event.getPayload()).path("correlationId").asText())
+                .distinct()
+                .toList()).containsExactly(rootCorrelationId);
+        assertThat(runtimeEventService.byEntityId(order.getOrderId()))
+                .extracting(event -> event.correlationId())
+                .containsOnly(rootCorrelationId);
+        assertThatThrownBy(() -> outboxService.create(OutboxTargetService.NEXUS, "MARKET_ORDER_PLACED",
+                "MARKET_ORDER", order.getOrderId(), "SIM-RETRY", null, "CORR-OTHER", demandEventId,
+                Map.of("orderId", order.getOrderId())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("different correlationId");
     }
 
     @Test
@@ -504,5 +615,21 @@ class ArchiveMarketIntegrationTest {
                 .filter(product -> product.getProductType() == type)
                 .findFirst()
                 .orElseThrow();
+    }
+
+    private JsonNode envelopeFor(List<com.csj.archive.market.outbox.MarketOutboxEntity> events, String eventType) {
+        return events.stream()
+                .filter(event -> event.getEventType().equals(eventType))
+                .findFirst()
+                .map(event -> readJson(event.getPayload()))
+                .orElseThrow();
+    }
+
+    private JsonNode readJson(String payload) {
+        try {
+            return objectMapper.readTree(payload);
+        } catch (Exception ex) {
+            throw new AssertionError("Invalid outbox JSON", ex);
+        }
     }
 }

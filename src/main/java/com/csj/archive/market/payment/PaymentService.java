@@ -57,8 +57,9 @@ public class PaymentService {
         payment.capture(Instant.now(clock));
         order.changeStatus(OrderStatus.PAYMENT_CAPTURED);
         String simulationRunId = IdGenerator.prefixed("SIM");
-        economyService.recordRevenue(RevenueType.PAYMENT_CAPTURED, order.getPaymentAmount(), order,
+        var paymentCapturedEvent = economyService.recordRevenue(RevenueType.PAYMENT_CAPTURED, order.getPaymentAmount(), order,
                 simulationRunId, null, "Synthetic payment captured");
+        order.advanceCausation(paymentCapturedEvent.getEventId());
         economyService.recordRevenue(RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED, order.getPaymentAmount(), order,
                 simulationRunId, null, "Synthetic product sales revenue from Archive-Market");
         if (order.getCustomerType().name().equals("B2B_CUSTOMER")) {
@@ -69,7 +70,7 @@ public class PaymentService {
         economyService.recordCost(CostType.PAYMENT_PROCESSING_FEE_PAID, pricingPolicy.paymentFee(order.getPaymentAmount()),
                 order, simulationRunId, null, "Synthetic payment processing fee");
         economyService.recordFinancialRebalancingForCapturedOrder(order, simulationRunId);
-        economyService.enqueuePaymentCaptured(order, simulationRunId);
+        economyService.enqueuePaymentCaptured(order, simulationRunId, paymentCapturedEvent.getEventId());
         auditLogService.record(AuditAction.PAYMENT_CAPTURED, "MARKET_PAYMENT", payment.getPaymentId(), null,
                 PaymentStatus.CAPTURED.name(), "Synthetic payment captured");
         return payment;

@@ -8,6 +8,7 @@ import com.csj.archive.market.inbox.MarketInboxStatus;
 import com.csj.archive.market.outbox.MarketOutboxEntity;
 import com.csj.archive.market.outbox.MarketOutboxRepository;
 import com.csj.archive.market.outbox.OutboxStatus;
+import com.csj.archive.market.order.MarketOrderRepository;
 import com.csj.archive.market.profitability.OrderProfitabilityAssessmentEntity;
 import com.csj.archive.market.profitability.OrderProfitabilityAssessmentRepository;
 import com.csj.archive.market.profitability.ProfitabilityRecommendation;
@@ -42,18 +43,21 @@ public class RuntimeEventService {
     private final MarketRevenueEventRepository revenueRepository;
     private final OrderProfitabilityAssessmentRepository assessmentRepository;
     private final MarketWorkdaySnapshotRepository workdaySnapshotRepository;
+    private final MarketOrderRepository orderRepository;
     private final ObjectMapper objectMapper;
 
     public RuntimeEventService(MarketOutboxRepository outboxRepository, MarketInboxRepository inboxRepository,
                                MarketRevenueEventRepository revenueRepository,
                                OrderProfitabilityAssessmentRepository assessmentRepository,
                                MarketWorkdaySnapshotRepository workdaySnapshotRepository,
+                               MarketOrderRepository orderRepository,
                                ObjectMapper objectMapper) {
         this.outboxRepository = outboxRepository;
         this.inboxRepository = inboxRepository;
         this.revenueRepository = revenueRepository;
         this.assessmentRepository = assessmentRepository;
         this.workdaySnapshotRepository = workdaySnapshotRepository;
+        this.orderRepository = orderRepository;
         this.objectMapper = objectMapper;
     }
 
@@ -194,8 +198,8 @@ public class RuntimeEventService {
                 event.getRevenueType().name(),
                 entityType(null, event.getRevenueType().name()),
                 entityId,
-                correlationId(entityId),
-                entityId,
+                rootCorrelationId(entityId),
+                null,
                 event.getSimulationRunId(),
                 event.getSettlementCycleId(),
                 null,
@@ -228,8 +232,8 @@ public class RuntimeEventService {
                 "ORDER_PROFITABILITY_EVALUATED",
                 "order",
                 assessment.getOrderId(),
-                correlationId(assessment.getOrderId()),
-                assessment.getOrderId(),
+                rootCorrelationId(assessment.getOrderId()),
+                assessment.getCausationEventId(),
                 null,
                 null,
                 null,
@@ -394,6 +398,14 @@ public class RuntimeEventService {
 
     private String correlationId(String entityId) {
         return entityId == null ? null : "CORR-" + entityId;
+    }
+
+    private String rootCorrelationId(String orderId) {
+        return orderRepository.findByOrderId(orderId)
+                .map(order -> order.getRootCorrelationId() == null || order.getRootCorrelationId().isBlank()
+                        ? correlationId(orderId)
+                        : order.getRootCorrelationId())
+                .orElse(correlationId(orderId));
     }
 
     private String status(OutboxStatus status, String eventType) {

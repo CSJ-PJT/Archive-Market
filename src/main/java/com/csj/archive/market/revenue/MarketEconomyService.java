@@ -125,21 +125,21 @@ public class MarketEconomyService {
     }
 
     @Transactional
-    public void enqueueOrderPlaced(MarketOrderEntity order, String simulationRunId) {
+    public void enqueueOrderPlaced(MarketOrderEntity order, String simulationRunId, String causationId) {
         outboxService.create(OutboxTargetService.NEXUS, "MARKET_ORDER_PLACED", "MARKET_ORDER", order.getOrderId(),
-                simulationRunId, null, correlationId(order), order.getOrderId(), orderPayload(order));
+                simulationRunId, null, correlationId(order), causationId, orderPayload(order));
     }
 
     @Transactional
-    public void enqueueProductionAndShipment(MarketOrderEntity order, String simulationRunId) {
+    public void enqueueProductionAndShipment(MarketOrderEntity order, String simulationRunId, String causationId) {
         outboxService.create(OutboxTargetService.NEXUS, "PRODUCTION_REQUESTED", "MARKET_ORDER", order.getOrderId(),
-                simulationRunId, null, correlationId(order), order.getOrderId(), orderPayload(order));
+                simulationRunId, null, correlationId(order), causationId, orderPayload(order));
         outboxService.create(OutboxTargetService.NEXUS, "SHIPMENT_REQUESTED", "MARKET_ORDER", order.getOrderId(),
-                simulationRunId, null, correlationId(order), order.getOrderId(), orderPayload(order));
+                simulationRunId, null, correlationId(order), causationId, orderPayload(order));
     }
 
     @Transactional
-    public void enqueuePaymentCaptured(MarketOrderEntity order, String simulationRunId) {
+    public void enqueuePaymentCaptured(MarketOrderEntity order, String simulationRunId, String causationId) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("orderId", order.getOrderId());
         payload.put("customerId", order.getCustomerId());
@@ -150,9 +150,9 @@ public class MarketEconomyService {
         payload.put("recognizedRevenue", recognizedRevenueFor(order));
         payload.put("reason", "Synthetic Market fee revenue from Archive-Market");
         outboxService.create(OutboxTargetService.LEDGER, "SALES_REVENUE_CONFIRMED", "MARKET_ORDER", order.getOrderId(),
-                simulationRunId, null, correlationId(order), order.getOrderId(), payload);
+                simulationRunId, null, correlationId(order), causationId, payload);
         outboxService.create(OutboxTargetService.LEDGER, "PAYMENT_CAPTURED", "MARKET_ORDER", order.getOrderId(),
-                simulationRunId, null, correlationId(order), order.getOrderId(), payload);
+                simulationRunId, null, correlationId(order), causationId, payload);
     }
 
     @Transactional
@@ -201,7 +201,7 @@ public class MarketEconomyService {
                 "currency", order.getCurrency(),
                 "reason", "Synthetic refund request from Archive-Market");
         outboxService.create(OutboxTargetService.LEDGER, "REFUND_REQUESTED", "MARKET_ORDER", order.getOrderId(),
-                simulationRunId, null, correlationId(order), order.getOrderId(), payload);
+                simulationRunId, null, correlationId(order), causationId(order), payload);
     }
 
     @Transactional
@@ -213,7 +213,7 @@ public class MarketEconomyService {
                 "currency", order.getCurrency(),
                 "reason", "Synthetic claim compensation from Archive-Market");
         outboxService.create(OutboxTargetService.LEDGER, "CLAIM_COMPENSATION_CONFIRMED", "MARKET_ORDER",
-                order.getOrderId(), simulationRunId, null, correlationId(order), order.getOrderId(), payload);
+                order.getOrderId(), simulationRunId, null, correlationId(order), causationId(order), payload);
     }
 
     @Transactional
@@ -224,7 +224,7 @@ public class MarketEconomyService {
             default -> OutboxTargetService.ARCHIVE_OS;
         };
         outboxService.create(target, eventType, aggregateType, order.getOrderId(), simulationRunId, null,
-                correlationId(order), order.getOrderId(), payload);
+                correlationId(order), causationId(order), payload);
     }
 
     @Transactional(readOnly = true)
@@ -284,7 +284,15 @@ public class MarketEconomyService {
     }
 
     private String correlationId(MarketOrderEntity order) {
-        return "CORR-" + order.getOrderId();
+        return order.getRootCorrelationId() == null || order.getRootCorrelationId().isBlank()
+                ? "CORR-" + order.getOrderId()
+                : order.getRootCorrelationId();
+    }
+
+    private String causationId(MarketOrderEntity order) {
+        return order.getLastEventId() == null || order.getLastEventId().isBlank()
+                ? correlationId(order)
+                : order.getLastEventId();
     }
 
     @Transactional(readOnly = true)
@@ -452,7 +460,7 @@ public class MarketEconomyService {
         payload.put("reason", reason);
         payload.put("synthetic", true);
         outboxService.create(target, eventType, "MARKET_ORDER", order.getOrderId(), simulationRunId, null,
-                correlationId(order), order.getOrderId(), payload);
+                correlationId(order), causationId(order), payload);
     }
 
     private BigDecimal recognizedRevenueFor(MarketOrderEntity order) {

@@ -87,7 +87,8 @@ public class MarketOrderService {
                 payment,
                 "KRW",
                 risk,
-                risk >= 80);
+                risk >= 80,
+                IdGenerator.prefixed("CORR"));
         order.addItem(new MarketOrderItemEntity(
                 orderId,
                 product.getProductId(),
@@ -98,11 +99,13 @@ public class MarketOrderService {
                 total));
         MarketOrderEntity saved = orderRepository.save(order);
         String simulationRunId = IdGenerator.prefixed("SIM");
-        profitabilityService.evaluate(saved.getOrderId(), simulationRunId);
-        economyService.recordRevenue(RevenueType.CUSTOMER_DEMAND_CREATED, BigDecimal.ZERO, saved, simulationRunId,
+        var demandEvent = economyService.recordRevenue(RevenueType.CUSTOMER_DEMAND_CREATED, BigDecimal.ZERO, saved, simulationRunId,
                 null, "Synthetic customer demand created");
-        economyService.recordRevenue(RevenueType.SALES_ORDER_PLACED, BigDecimal.ZERO, saved, simulationRunId,
-                null, "Synthetic sales order placed");
+        saved.advanceCausation(demandEvent.getEventId());
+        var orderPlacedEvent = economyService.recordRevenue(RevenueType.SALES_ORDER_PLACED, BigDecimal.ZERO, saved,
+                simulationRunId, null, "Synthetic sales order placed");
+        saved.advanceCausation(orderPlacedEvent.getEventId());
+        profitabilityService.evaluate(saved.getOrderId(), simulationRunId);
         economyService.recordCost(CostType.CUSTOMER_ACQUISITION_COST_INCURRED, BigDecimal.valueOf(5000), saved,
                 simulationRunId, null, "Synthetic customer acquisition cost");
         if (discount.signum() > 0) {
@@ -113,7 +116,7 @@ public class MarketOrderService {
             economyService.recordRevenue(RevenueType.EXPRESS_ORDER_FEE_EARNED, BigDecimal.valueOf(15000), saved,
                     simulationRunId, null, "Synthetic express order fee");
         }
-        economyService.enqueueOrderPlaced(saved, simulationRunId);
+        economyService.enqueueOrderPlaced(saved, simulationRunId, demandEvent.getEventId());
         auditLogService.record(AuditAction.ORDER_CREATED, "MARKET_ORDER", saved.getOrderId(), null,
                 saved.getOrderStatus().name(), "Synthetic order created");
         return saved;
@@ -126,9 +129,10 @@ public class MarketOrderService {
             return order;
         }
         order.changeStatus(OrderStatus.CONFIRMED);
-        economyService.recordRevenue(RevenueType.SALES_ORDER_CONFIRMED, BigDecimal.ZERO, order,
+        var confirmationEvent = economyService.recordRevenue(RevenueType.SALES_ORDER_CONFIRMED, BigDecimal.ZERO, order,
                 IdGenerator.prefixed("SIM"), null, "Synthetic sales order confirmed");
-        economyService.enqueueProductionAndShipment(order, IdGenerator.prefixed("SIM"));
+        order.advanceCausation(confirmationEvent.getEventId());
+        economyService.enqueueProductionAndShipment(order, IdGenerator.prefixed("SIM"), confirmationEvent.getEventId());
         auditLogService.record(AuditAction.ORDER_CONFIRMED, "MARKET_ORDER", orderId, OrderStatus.CREATED.name(),
                 OrderStatus.CONFIRMED.name(), "Order confirmed and Nexus requests enqueued");
         return order;

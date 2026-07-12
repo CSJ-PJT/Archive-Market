@@ -1,11 +1,14 @@
 package com.csj.archive.market.outbox;
 
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.domain.Pageable;
 
 public interface MarketOutboxRepository extends JpaRepository<MarketOutboxEntity, Long> {
     boolean existsByIdempotencyKey(String idempotencyKey);
+
+    Optional<MarketOutboxEntity> findByIdempotencyKey(String idempotencyKey);
 
     List<MarketOutboxEntity> findTop100ByStatusInOrderByCreatedAtAsc(List<OutboxStatus> statuses);
 

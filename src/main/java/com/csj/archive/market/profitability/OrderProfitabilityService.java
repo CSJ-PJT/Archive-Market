@@ -149,6 +149,7 @@ public class OrderProfitabilityService {
         OrderProfitabilityAssessmentEntity assessment = assessmentRepository.save(new OrderProfitabilityAssessmentEntity(
                 IdGenerator.prefixed("ASM"),
                 order.getOrderId(),
+                order.getLastEventId(),
                 order.getCustomerId(),
                 order.getCustomerType(),
                 productType(order),
@@ -312,21 +313,25 @@ public class OrderProfitabilityService {
         payload.put("reason", assessment.getReason());
         outboxService.create(OutboxTargetService.ARCHIVE_OS, "ORDER_REQUIRES_REVIEW", "MARKET_ORDER",
                 assessment.getOrderId(), simulationRunId, null, correlationId(assessment),
-                assessment.getOrderId(), payload);
+                "RTE-" + assessment.getAssessmentId(), payload);
         if (assessment.getMarginRate().compareTo(properties.getAcceptMarginRate()) < 0) {
             outboxService.create(OutboxTargetService.ARCHIVE_OS, "LOW_MARGIN_ORDER_DETECTED", "MARKET_ORDER",
                     assessment.getOrderId(), simulationRunId, null, correlationId(assessment),
-                    assessment.getOrderId(), payload);
+                    "RTE-" + assessment.getAssessmentId(), payload);
         }
         if (assessment.getRiskScore().compareTo(properties.getHighRiskScore()) >= 0) {
             outboxService.create(OutboxTargetService.ARCHIVE_OS, "HIGH_RISK_ORDER_DETECTED", "MARKET_ORDER",
                     assessment.getOrderId(), simulationRunId, null, correlationId(assessment),
-                    assessment.getOrderId(), payload);
+                    "RTE-" + assessment.getAssessmentId(), payload);
         }
     }
 
     private String correlationId(OrderProfitabilityAssessmentEntity assessment) {
-        return "CORR-" + assessment.getOrderId();
+        return orderRepository.findByOrderId(assessment.getOrderId())
+                .map(order -> order.getRootCorrelationId() == null || order.getRootCorrelationId().isBlank()
+                        ? "CORR-" + order.getOrderId()
+                        : order.getRootCorrelationId())
+                .orElse("CORR-" + assessment.getOrderId());
     }
 
     private boolean hasProductType(MarketOrderEntity order, String productType) {

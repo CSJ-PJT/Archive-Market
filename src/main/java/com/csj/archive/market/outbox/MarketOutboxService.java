@@ -32,26 +32,43 @@ public class MarketOutboxService {
                                      String correlationId, String causationId, Map<String, Object> payload) {
         String idempotencyKey = "MARKET:" + eventType + ":" + aggregateId;
         if (outboxRepository.existsByIdempotencyKey(idempotencyKey)) {
-            return outboxRepository.findAll().stream()
-                    .filter(event -> event.getIdempotencyKey().equals(idempotencyKey))
-                    .findFirst()
-                    .orElseThrow();
+            MarketOutboxEntity existing = outboxRepository.findByIdempotencyKey(idempotencyKey).orElseThrow();
+            String existingCorrelationId = correlationId(existing.getPayload());
+            if (existingCorrelationId != null && !existingCorrelationId.equals(correlationId)) {
+                throw new IllegalStateException("Outbox idempotency key is already bound to a different correlationId");
+            }
+            return existing;
         }
         String eventId = IdGenerator.prefixed("EVT");
+        Map<String, Object> downstreamPayload = new LinkedHashMap<>(payload == null ? Map.of() : payload);
+        String workdayId = value(downstreamPayload.get("workdayId"));
+        downstreamPayload.put("eventId", eventId);
+        downstreamPayload.put("correlationId", correlationId);
+        downstreamPayload.put("causationId", causationId);
+        downstreamPayload.put("orderId", downstreamPayload.getOrDefault("orderId", aggregateId));
+        downstreamPayload.put("entityId", downstreamPayload.getOrDefault("entityId", aggregateId));
+        downstreamPayload.put("simulationRunId", simulationRunId);
+        downstreamPayload.put("workdayId", workdayId);
+        downstreamPayload.put("settlementCycleId", settlementCycleId);
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("eventId", eventId);
         envelope.put("idempotencyKey", idempotencyKey);
         envelope.put("source", "Archive-Market");
+        envelope.put("sourceService", "Archive-Market");
+        envelope.put("targetService", target.name());
         envelope.put("eventType", eventType);
+        envelope.put("orderId", aggregateId);
+        envelope.put("entityId", aggregateId);
         envelope.put("schemaVersion", 1);
         envelope.put("occurredAt", Instant.now(clock).toString());
         envelope.put("simulationRunId", simulationRunId);
         envelope.put("settlementCycleId", settlementCycleId);
+        envelope.put("workdayId", workdayId);
         envelope.put("correlationId", correlationId);
         envelope.put("causationId", causationId);
         envelope.put("hopCount", 1);
         envelope.put("maxHop", MAX_HOP);
-        envelope.put("payload", payload);
+        envelope.put("payload", downstreamPayload);
         return outboxRepository.save(new MarketOutboxEntity(
                 eventId, idempotencyKey, target, eventType, aggregateType, aggregateId, json(envelope)));
     }
@@ -83,5 +100,19 @@ public class MarketOutboxService {
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException(ex);
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String correlationId(String payload) {
+        try {
+            Map<String, Object> envelope = objectMapper.readValue(payload, LinkedHashMap.class);
+            return value(envelope.get("correlationId"));
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Cannot read persisted outbox payload", ex);
+        }
+    }
+
+    private String value(Object value) {
+        return value == null ? null : value.toString();
     }
 }

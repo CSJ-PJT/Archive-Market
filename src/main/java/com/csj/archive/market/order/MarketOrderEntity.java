@@ -59,6 +59,12 @@ public class MarketOrderEntity {
     @Column(name = "requires_approval", nullable = false)
     private boolean requiresApproval;
 
+    @Column(name = "root_correlation_id", unique = true)
+    private String rootCorrelationId;
+
+    @Column(name = "last_event_id")
+    private String lastEventId;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     private List<MarketOrderItemEntity> items = new ArrayList<>();
 
@@ -75,7 +81,7 @@ public class MarketOrderEntity {
 
     public MarketOrderEntity(String orderId, String customerId, SyntheticCustomer customerType,
                              BigDecimal totalOrderAmount, BigDecimal discountAmount, BigDecimal paymentAmount,
-                             String currency, int riskScore, boolean requiresApproval) {
+                             String currency, int riskScore, boolean requiresApproval, String rootCorrelationId) {
         this.orderId = orderId;
         this.customerId = customerId;
         this.customerType = customerType;
@@ -86,6 +92,7 @@ public class MarketOrderEntity {
         this.currency = currency;
         this.riskScore = riskScore;
         this.requiresApproval = requiresApproval;
+        this.rootCorrelationId = rootCorrelationId;
     }
 
     public void addItem(MarketOrderItemEntity item) {
@@ -95,6 +102,10 @@ public class MarketOrderEntity {
 
     public void changeStatus(OrderStatus orderStatus) {
         this.orderStatus = orderStatus;
+    }
+
+    public void advanceCausation(String eventId) {
+        this.lastEventId = eventId;
     }
 
     public Long getId() {
@@ -139,6 +150,14 @@ public class MarketOrderEntity {
 
     public boolean isRequiresApproval() {
         return requiresApproval;
+    }
+
+    public String getRootCorrelationId() {
+        return rootCorrelationId;
+    }
+
+    public String getLastEventId() {
+        return lastEventId;
     }
 
     public List<MarketOrderItemEntity> getItems() {
