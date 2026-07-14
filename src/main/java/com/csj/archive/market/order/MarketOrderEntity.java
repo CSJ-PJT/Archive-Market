@@ -12,6 +12,7 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -75,6 +76,19 @@ public class MarketOrderEntity {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /**
+     * The simulation request that created this order. Persisting it keeps all later
+     * order lifecycle work on the same runtime lineage across request boundaries.
+     */
+    @Column(name = "simulation_run_id")
+    private String simulationRunId;
+
+    @Transient
+    private List<String> createdEventIds = List.of();
+
+    @Transient
+    private int outboxAcceptedCount;
 
     protected MarketOrderEntity() {
     }
@@ -156,8 +170,35 @@ public class MarketOrderEntity {
         return rootCorrelationId;
     }
 
+    /** Additive canonical alias for response consumers. */
+    public String getCorrelationId() {
+        return rootCorrelationId;
+    }
+
     public String getLastEventId() {
         return lastEventId;
+    }
+
+    public void attachCreationReceipt(String simulationRunId, List<String> createdEventIds) {
+        this.simulationRunId = simulationRunId;
+        this.createdEventIds = createdEventIds == null ? List.of() : List.copyOf(createdEventIds);
+        this.outboxAcceptedCount = this.createdEventIds.size();
+    }
+
+    public void assignSimulationRunId(String simulationRunId) {
+        this.simulationRunId = simulationRunId;
+    }
+
+    public String getSimulationRunId() {
+        return simulationRunId;
+    }
+
+    public List<String> getCreatedEventIds() {
+        return createdEventIds;
+    }
+
+    public int getOutboxAcceptedCount() {
+        return outboxAcceptedCount;
     }
 
     public List<MarketOrderItemEntity> getItems() {

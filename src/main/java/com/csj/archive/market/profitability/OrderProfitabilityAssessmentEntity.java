@@ -30,6 +30,9 @@ public class OrderProfitabilityAssessmentEntity {
     @Column(name = "causation_event_id")
     private String causationEventId;
 
+    @Column(name = "simulation_run_id")
+    private String simulationRunId;
+
     @Column(name = "customer_id", nullable = false)
     private String customerId;
 
@@ -108,7 +111,8 @@ public class OrderProfitabilityAssessmentEntity {
     protected OrderProfitabilityAssessmentEntity() {
     }
 
-    public OrderProfitabilityAssessmentEntity(String assessmentId, String orderId, String causationEventId, String customerId,
+    public OrderProfitabilityAssessmentEntity(String assessmentId, String orderId, String causationEventId,
+                                              String simulationRunId, String customerId,
                                               SyntheticCustomer customerType, String productType,
                                               BigDecimal orderAmount, BigDecimal expectedRevenue,
                                               BigDecimal estimatedProductionCost, BigDecimal estimatedLogisticsCost,
@@ -123,6 +127,7 @@ public class OrderProfitabilityAssessmentEntity {
         this.assessmentId = assessmentId;
         this.orderId = orderId;
         this.causationEventId = causationEventId;
+        this.simulationRunId = simulationRunId;
         this.customerId = customerId;
         this.customerType = customerType;
         this.productType = productType;
@@ -158,6 +163,10 @@ public class OrderProfitabilityAssessmentEntity {
 
     public String getCausationEventId() {
         return causationEventId;
+    }
+
+    public String getSimulationRunId() {
+        return simulationRunId;
     }
 
     public String getCustomerId() {

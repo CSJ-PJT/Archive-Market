@@ -45,7 +45,11 @@ public class OrderProfitabilityService {
 
     @Transactional
     public OrderProfitabilityAssessmentEntity evaluate(String orderId) {
-        return evaluate(orderId, IdGenerator.prefixed("SIM"));
+        String simulationRunId = orderRepository.findByOrderId(orderId)
+                .map(MarketOrderEntity::getSimulationRunId)
+                .filter(value -> !value.isBlank())
+                .orElseGet(() -> IdGenerator.prefixed("SIM"));
+        return evaluate(orderId, simulationRunId);
     }
 
     @Transactional
@@ -150,6 +154,7 @@ public class OrderProfitabilityService {
                 IdGenerator.prefixed("ASM"),
                 order.getOrderId(),
                 order.getLastEventId(),
+                simulationRunId,
                 order.getCustomerId(),
                 order.getCustomerType(),
                 productType(order),
@@ -173,6 +178,7 @@ public class OrderProfitabilityService {
                 decision.recommendation(),
                 decision.recommendation() == ProfitabilityRecommendation.REVIEW_REQUIRED,
                 decision.reason()));
+        enqueueRuntimeProjection(assessment, simulationRunId);
         enqueueReviewEvents(assessment, simulationRunId);
         return assessment;
     }
@@ -324,6 +330,20 @@ public class OrderProfitabilityService {
                     assessment.getOrderId(), simulationRunId, null, correlationId(assessment),
                     "RTE-" + assessment.getAssessmentId(), payload);
         }
+    }
+
+    private void enqueueRuntimeProjection(OrderProfitabilityAssessmentEntity assessment, String simulationRunId) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("orderId", assessment.getOrderId());
+        payload.put("assessmentId", assessment.getAssessmentId());
+        payload.put("recommendation", assessment.getRecommendation().name());
+        payload.put("marginRate", assessment.getMarginRate());
+        payload.put("riskScore", assessment.getRiskScore());
+        payload.put("expectedProfit", assessment.getExpectedProfit());
+        payload.put("reason", assessment.getReason());
+        outboxService.createArchiveOsRuntimeProjection("RTE-" + assessment.getAssessmentId(),
+                "ORDER_PROFITABILITY_EVALUATED", "MARKET_ORDER", assessment.getOrderId(), simulationRunId, null,
+                correlationId(assessment), assessment.getCausationEventId(), payload);
     }
 
     private String correlationId(OrderProfitabilityAssessmentEntity assessment) {

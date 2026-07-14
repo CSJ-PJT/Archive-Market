@@ -77,6 +77,14 @@ public class MarketCostEventEntity {
         return eventId;
     }
 
+    public String getSimulationRunId() {
+        return simulationRunId;
+    }
+
+    public String getOrderId() {
+        return orderId;
+    }
+
     public CostType getCostType() {
         return costType;
     }

@@ -1,0 +1,4 @@
+services:
+  archive-market-postgres:
+    ports:
+      - "127.0.0.1:${MARKET_DB_HOST_PORT:-15435}:5432"

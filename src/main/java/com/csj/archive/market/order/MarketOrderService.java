@@ -13,6 +13,7 @@ import com.csj.archive.market.product.ProductEntity;
 import com.csj.archive.market.product.ProductRepository;
 import com.csj.archive.market.product.ProductService;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
+import com.csj.archive.market.outbox.MarketOutboxRepository;
 import com.csj.archive.market.revenue.CostType;
 import com.csj.archive.market.revenue.MarketEconomyService;
 import com.csj.archive.market.revenue.RevenueType;
@@ -36,13 +37,14 @@ public class MarketOrderService {
     private final PricingPolicy pricingPolicy;
     private final MarketEconomyService economyService;
     private final OrderProfitabilityService profitabilityService;
+    private final MarketOutboxRepository outboxRepository;
     private final AuditLogService auditLogService;
 
     public MarketOrderService(MarketOrderRepository orderRepository, CustomerRepository customerRepository,
                               ProductRepository productRepository, CustomerService customerService,
                               ProductService productService, PricingPolicy pricingPolicy,
                               MarketEconomyService economyService, OrderProfitabilityService profitabilityService,
-                              AuditLogService auditLogService) {
+                              AuditLogService auditLogService, MarketOutboxRepository outboxRepository) {
         this.orderRepository = orderRepository;
         this.customerRepository = customerRepository;
         this.productRepository = productRepository;
@@ -52,6 +54,7 @@ public class MarketOrderService {
         this.economyService = economyService;
         this.profitabilityService = profitabilityService;
         this.auditLogService = auditLogService;
+        this.outboxRepository = outboxRepository;
     }
 
     @Transactional(readOnly = true)
@@ -67,6 +70,14 @@ public class MarketOrderService {
 
     @Transactional
     public MarketOrderEntity create(CreateOrderRequest request) {
+        return create(request, IdGenerator.prefixed("SIM"));
+    }
+
+    @Transactional
+    public MarketOrderEntity create(CreateOrderRequest request, String simulationRunId) {
+        if (simulationRunId == null || simulationRunId.isBlank()) {
+            throw new BusinessException("SIMULATION_RUN_ID_REQUIRED", "simulationRunId is required for order creation");
+        }
         if (productRepository.count() == 0) {
             productService.seed();
         }
@@ -89,6 +100,7 @@ public class MarketOrderService {
                 risk,
                 risk >= 80,
                 IdGenerator.prefixed("CORR"));
+        order.assignSimulationRunId(simulationRunId);
         order.addItem(new MarketOrderItemEntity(
                 orderId,
                 product.getProductId(),
@@ -98,12 +110,13 @@ public class MarketOrderService {
                 product.getBaseCost(),
                 total));
         MarketOrderEntity saved = orderRepository.save(order);
-        String simulationRunId = IdGenerator.prefixed("SIM");
         var demandEvent = economyService.recordRevenue(RevenueType.CUSTOMER_DEMAND_CREATED, BigDecimal.ZERO, saved, simulationRunId,
                 null, "Synthetic customer demand created");
+        economyService.enqueueArchiveOsRuntimeRevenue(demandEvent, saved, null);
         saved.advanceCausation(demandEvent.getEventId());
         var orderPlacedEvent = economyService.recordRevenue(RevenueType.SALES_ORDER_PLACED, BigDecimal.ZERO, saved,
                 simulationRunId, null, "Synthetic sales order placed");
+        economyService.enqueueArchiveOsRuntimeRevenue(orderPlacedEvent, saved, demandEvent.getEventId());
         saved.advanceCausation(orderPlacedEvent.getEventId());
         profitabilityService.evaluate(saved.getOrderId(), simulationRunId);
         economyService.recordCost(CostType.CUSTOMER_ACQUISITION_COST_INCURRED, BigDecimal.valueOf(5000), saved,
@@ -119,6 +132,11 @@ public class MarketOrderService {
         economyService.enqueueOrderPlaced(saved, simulationRunId, demandEvent.getEventId());
         auditLogService.record(AuditAction.ORDER_CREATED, "MARKET_ORDER", saved.getOrderId(), null,
                 saved.getOrderStatus().name(), "Synthetic order created");
+        saved.attachCreationReceipt(simulationRunId, outboxRepository
+                .findByAggregateIdOrderByCreatedAtAsc(saved.getOrderId())
+                .stream()
+                .map(event -> event.getEventId())
+                .toList());
         return saved;
     }
 
@@ -129,10 +147,12 @@ public class MarketOrderService {
             return order;
         }
         order.changeStatus(OrderStatus.CONFIRMED);
+        String parentEventId = order.getLastEventId();
         var confirmationEvent = economyService.recordRevenue(RevenueType.SALES_ORDER_CONFIRMED, BigDecimal.ZERO, order,
-                IdGenerator.prefixed("SIM"), null, "Synthetic sales order confirmed");
+                simulationRunIdFor(order), null, "Synthetic sales order confirmed");
+        economyService.enqueueArchiveOsRuntimeRevenue(confirmationEvent, order, parentEventId);
         order.advanceCausation(confirmationEvent.getEventId());
-        economyService.enqueueProductionAndShipment(order, IdGenerator.prefixed("SIM"), confirmationEvent.getEventId());
+        economyService.enqueueProductionAndShipment(order, simulationRunIdFor(order), confirmationEvent.getEventId());
         auditLogService.record(AuditAction.ORDER_CONFIRMED, "MARKET_ORDER", orderId, OrderStatus.CREATED.name(),
                 OrderStatus.CONFIRMED.name(), "Order confirmed and Nexus requests enqueued");
         return order;
@@ -146,7 +166,7 @@ public class MarketOrderService {
         }
         String before = order.getOrderStatus().name();
         order.changeStatus(OrderStatus.CANCELLED);
-        economyService.enqueueGenericEvent("ORDER_CANCELLED", "MARKET_ORDER", order, IdGenerator.prefixed("SIM"),
+        economyService.enqueueGenericEvent("ORDER_CANCELLED", "MARKET_ORDER", order, simulationRunIdFor(order),
                 Map.of("orderId", order.getOrderId(), "reason", "Synthetic cancellation"));
         auditLogService.record(AuditAction.ORDER_CANCELLED, "MARKET_ORDER", orderId, before,
                 OrderStatus.CANCELLED.name(), "Order cancelled");
@@ -162,12 +182,13 @@ public class MarketOrderService {
         List<CustomerEntity> customers = customerService.ensureCustomers(Math.min(Math.max(count, 6), 100));
         List<ProductEntity> products = productRepository.findByEnabledTrue();
         SplittableRandom random = new SplittableRandom();
+        String simulationRunId = IdGenerator.prefixed("SIM");
         return java.util.stream.IntStream.range(0, count)
                 .mapToObj(i -> create(new CreateOrderRequest(
                         customers.get(i % customers.size()).getCustomerId(),
                         products.get(i % products.size()).getProductId(),
                         1 + random.nextInt(5),
-                        i % 9 == 0)))
+                        i % 9 == 0), simulationRunId))
                 .toList();
     }
 
@@ -191,5 +212,15 @@ public class MarketOrderService {
         }
         return productRepository.findByProductId(productId)
                 .orElseThrow(() -> new NotFoundException("Product not found: " + productId));
+    }
+
+    private String simulationRunIdFor(MarketOrderEntity order) {
+        if (order.getSimulationRunId() != null && !order.getSimulationRunId().isBlank()) {
+            return order.getSimulationRunId();
+        }
+        // Legacy orders predate the persisted simulation lineage column.
+        String legacySimulationRunId = IdGenerator.prefixed("SIM");
+        order.assignSimulationRunId(legacySimulationRunId);
+        return legacySimulationRunId;
     }
 }

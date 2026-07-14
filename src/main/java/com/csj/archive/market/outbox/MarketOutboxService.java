@@ -31,6 +31,31 @@ public class MarketOutboxService {
                                      String aggregateId, String simulationRunId, String settlementCycleId,
                                      String correlationId, String causationId, Map<String, Object> payload) {
         String idempotencyKey = "MARKET:" + eventType + ":" + aggregateId;
+        return createWithEventIdentity(IdGenerator.prefixed("EVT"), idempotencyKey, target, eventType,
+                aggregateType, aggregateId, simulationRunId, settlementCycleId, correlationId, causationId, payload);
+    }
+
+    /**
+     * Projects an already-created Market runtime event to ArchiveOS. The source event ID is
+     * intentionally retained so ArchiveOS can resolve causation without a synthetic bridge.
+     */
+    @Transactional
+    public MarketOutboxEntity createArchiveOsRuntimeProjection(String sourceEventId, String eventType,
+                                                                String aggregateType, String aggregateId,
+                                                                String simulationRunId, String settlementCycleId,
+                                                                String correlationId, String causationId,
+                                                                Map<String, Object> payload) {
+        String idempotencyKey = "MARKET:ARCHIVE_OS_RUNTIME:" + sourceEventId;
+        return createWithEventIdentity(sourceEventId, idempotencyKey, OutboxTargetService.ARCHIVE_OS, eventType,
+                aggregateType, aggregateId, simulationRunId, settlementCycleId, correlationId, causationId, payload);
+    }
+
+    private MarketOutboxEntity createWithEventIdentity(String eventId, String idempotencyKey,
+                                                        OutboxTargetService target, String eventType,
+                                                        String aggregateType, String aggregateId,
+                                                        String simulationRunId, String settlementCycleId,
+                                                        String correlationId, String causationId,
+                                                        Map<String, Object> payload) {
         if (outboxRepository.existsByIdempotencyKey(idempotencyKey)) {
             MarketOutboxEntity existing = outboxRepository.findByIdempotencyKey(idempotencyKey).orElseThrow();
             String existingCorrelationId = correlationId(existing.getPayload());
@@ -39,10 +64,11 @@ public class MarketOutboxService {
             }
             return existing;
         }
-        String eventId = IdGenerator.prefixed("EVT");
         Map<String, Object> downstreamPayload = new LinkedHashMap<>(payload == null ? Map.of() : payload);
         String workdayId = value(downstreamPayload.get("workdayId"));
         downstreamPayload.put("eventId", eventId);
+        downstreamPayload.put("sourceSystem", "archive-market");
+        downstreamPayload.put("targetSystem", target.name());
         downstreamPayload.put("correlationId", correlationId);
         downstreamPayload.put("causationId", causationId);
         downstreamPayload.put("orderId", downstreamPayload.getOrDefault("orderId", aggregateId));
@@ -50,12 +76,15 @@ public class MarketOutboxService {
         downstreamPayload.put("simulationRunId", simulationRunId);
         downstreamPayload.put("workdayId", workdayId);
         downstreamPayload.put("settlementCycleId", settlementCycleId);
+        downstreamPayload.put("syntheticData", true);
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("eventId", eventId);
         envelope.put("idempotencyKey", idempotencyKey);
-        envelope.put("source", "Archive-Market");
-        envelope.put("sourceService", "Archive-Market");
+        envelope.put("source", "archive-market");
+        envelope.put("sourceService", "archive-market");
         envelope.put("targetService", target.name());
+        envelope.put("sourceSystem", "archive-market");
+        envelope.put("targetSystem", target.name());
         envelope.put("eventType", eventType);
         envelope.put("orderId", aggregateId);
         envelope.put("entityId", aggregateId);
@@ -68,9 +97,13 @@ public class MarketOutboxService {
         envelope.put("causationId", causationId);
         envelope.put("hopCount", 1);
         envelope.put("maxHop", MAX_HOP);
+        envelope.put("syntheticData", true);
+        envelope.put("runtimeProjection", target == OutboxTargetService.ARCHIVE_OS
+                && idempotencyKey.startsWith("MARKET:ARCHIVE_OS_RUNTIME:"));
+        envelope.put("publishApproved", true);
         envelope.put("payload", downstreamPayload);
         return outboxRepository.save(new MarketOutboxEntity(
-                eventId, idempotencyKey, target, eventType, aggregateType, aggregateId, json(envelope)));
+                eventId, idempotencyKey, target, eventType, aggregateType, aggregateId, json(envelope), true));
     }
 
     @Transactional(readOnly = true)
@@ -89,7 +122,8 @@ public class MarketOutboxService {
 
     @Transactional
     public List<MarketOutboxEntity> markFailedForRetry() {
-        List<MarketOutboxEntity> failed = outboxRepository.findTop100ByStatusInOrderByCreatedAtAsc(List.of(OutboxStatus.FAILED, OutboxStatus.RETRY));
+        List<MarketOutboxEntity> failed = outboxRepository.findTop100ByStatusInOrderByCreatedAtAsc(
+                List.of(OutboxStatus.FAILED, OutboxStatus.RETRY, OutboxStatus.RETRY_WAIT));
         failed.forEach(event -> event.markFailed("manual retry requested", Instant.now(clock)));
         return failed;
     }

@@ -56,9 +56,11 @@ public class PaymentService {
         }
         payment.capture(Instant.now(clock));
         order.changeStatus(OrderStatus.PAYMENT_CAPTURED);
-        String simulationRunId = IdGenerator.prefixed("SIM");
+        String simulationRunId = simulationRunIdFor(order);
+        String parentEventId = order.getLastEventId();
         var paymentCapturedEvent = economyService.recordRevenue(RevenueType.PAYMENT_CAPTURED, order.getPaymentAmount(), order,
                 simulationRunId, null, "Synthetic payment captured");
+        economyService.enqueueArchiveOsRuntimeRevenue(paymentCapturedEvent, order, parentEventId);
         order.advanceCausation(paymentCapturedEvent.getEventId());
         economyService.recordRevenue(RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED, order.getPaymentAmount(), order,
                 simulationRunId, null, "Synthetic product sales revenue from Archive-Market");
@@ -90,9 +92,19 @@ public class PaymentService {
         }
         payment.refund(Instant.now(clock));
         order.changeStatus(OrderStatus.REFUNDED);
-        economyService.enqueueRefundRequested(order, IdGenerator.prefixed("SIM"));
+        economyService.enqueueRefundRequested(order, simulationRunIdFor(order));
         auditLogService.record(AuditAction.PAYMENT_REFUNDED, "MARKET_PAYMENT", payment.getPaymentId(),
                 PaymentStatus.CAPTURED.name(), PaymentStatus.REFUNDED.name(), "Synthetic refund requested");
         return payment;
+    }
+
+    private String simulationRunIdFor(MarketOrderEntity order) {
+        if (order.getSimulationRunId() != null && !order.getSimulationRunId().isBlank()) {
+            return order.getSimulationRunId();
+        }
+        // Legacy orders may not have a persisted simulation lineage yet.
+        String legacySimulationRunId = IdGenerator.prefixed("SIM");
+        order.assignSimulationRunId(legacySimulationRunId);
+        return legacySimulationRunId;
     }
 }

@@ -45,6 +45,9 @@ public class MarketOutboxEntity {
     @JdbcTypeCode(SqlTypes.JSON)
     private String payload;
 
+    @Column(name = "publish_approved", nullable = false)
+    private boolean publishApproved;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false)
     private OutboxStatus status;
@@ -73,7 +76,8 @@ public class MarketOutboxEntity {
     }
 
     public MarketOutboxEntity(String eventId, String idempotencyKey, OutboxTargetService targetService,
-                              String eventType, String aggregateType, String aggregateId, String payload) {
+                              String eventType, String aggregateType, String aggregateId, String payload,
+                              boolean publishApproved) {
         this.eventId = eventId;
         this.idempotencyKey = idempotencyKey;
         this.targetService = targetService;
@@ -81,6 +85,7 @@ public class MarketOutboxEntity {
         this.aggregateType = aggregateType;
         this.aggregateId = aggregateId;
         this.payload = payload;
+        this.publishApproved = publishApproved;
         this.status = OutboxStatus.PENDING;
     }
 
@@ -116,6 +121,10 @@ public class MarketOutboxEntity {
         return payload;
     }
 
+    public boolean isPublishApproved() {
+        return publishApproved;
+    }
+
     public OutboxStatus getStatus() {
         return status;
     }
@@ -142,6 +151,11 @@ public class MarketOutboxEntity {
         this.lastError = null;
     }
 
+    public void markPublishing() {
+        this.status = OutboxStatus.PUBLISHING;
+        this.lastError = null;
+    }
+
     public void markPublished(Instant now) {
         this.status = OutboxStatus.PUBLISHED;
         this.publishedAt = now;
@@ -149,13 +163,17 @@ public class MarketOutboxEntity {
     }
 
     public void markSkipped(Instant now, String reason) {
-        this.status = OutboxStatus.SKIPPED;
+        markDeadLetter(now, reason);
+    }
+
+    public void markDeadLetter(Instant now, String reason) {
+        this.status = OutboxStatus.DEAD_LETTER;
         this.publishedAt = now;
         this.lastError = reason;
     }
 
     public void markFailed(String error, Instant nextRetryAt) {
-        this.status = OutboxStatus.RETRY;
+        this.status = OutboxStatus.RETRY_WAIT;
         this.retryCount++;
         this.lastError = error;
         this.nextRetryAt = nextRetryAt;

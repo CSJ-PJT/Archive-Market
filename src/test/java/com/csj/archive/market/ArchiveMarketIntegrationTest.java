@@ -230,7 +230,8 @@ class ArchiveMarketIntegrationTest {
 
         mockMvc.perform(get("/api/operations/summary"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.integration.nexus").value("DRY_RUN_CAPABLE"))
+                .andExpect(jsonPath("$.data.integration.nexus").value("DRY_RUN_ONLY"))
+                .andExpect(jsonPath("$.data.integration.externalWrite").value("EXTERNAL_WRITE_BLOCKED"))
                 .andExpect(jsonPath("$.data.liveFlowAvailable").value(true));
 
         mockMvc.perform(get("/api/runtime-events/recent").param("limit", "20"))
@@ -275,6 +276,9 @@ class ArchiveMarketIntegrationTest {
                 customer.getCustomerId(), product.getProductId(), 1, false));
         String rootCorrelationId = order.getRootCorrelationId();
         assertThat(rootCorrelationId).startsWith("CORR-");
+        assertThat(order.getSimulationRunId()).startsWith("SIM-");
+        assertThat(order.getCreatedEventIds()).isNotEmpty().doesNotHaveDuplicates();
+        assertThat(order.getOutboxAcceptedCount()).isEqualTo(order.getCreatedEventIds().size());
 
         orderService.confirm(order.getOrderId());
         paymentService.capture(order.getOrderId());
@@ -285,6 +289,7 @@ class ArchiveMarketIntegrationTest {
         assertThat(orderEvents).isNotEmpty();
         assertThat(orderEvents).extracting(com.csj.archive.market.outbox.MarketOutboxEntity::getEventId)
                 .doesNotHaveDuplicates();
+        assertThat(orderEvents).allMatch(com.csj.archive.market.outbox.MarketOutboxEntity::isPublishApproved);
 
         List<JsonNode> envelopes = orderEvents.stream()
                 .map(event -> readJson(event.getPayload()))
@@ -294,7 +299,7 @@ class ArchiveMarketIntegrationTest {
             assertThat(envelope.path("correlationId").asText()).isEqualTo(rootCorrelationId);
             assertThat(envelope.path("orderId").asText()).isEqualTo(order.getOrderId());
             assertThat(envelope.path("entityId").asText()).isEqualTo(order.getOrderId());
-            assertThat(envelope.has("simulationRunId")).isTrue();
+            assertThat(envelope.path("simulationRunId").asText()).isEqualTo(order.getSimulationRunId());
             assertThat(envelope.has("workdayId")).isTrue();
             assertThat(envelope.has("settlementCycleId")).isTrue();
 
@@ -303,7 +308,7 @@ class ArchiveMarketIntegrationTest {
             assertThat(payload.path("correlationId").asText()).isEqualTo(rootCorrelationId);
             assertThat(payload.path("orderId").asText()).isEqualTo(order.getOrderId());
             assertThat(payload.path("entityId").asText()).isEqualTo(order.getOrderId());
-            assertThat(payload.has("simulationRunId")).isTrue();
+            assertThat(payload.path("simulationRunId").asText()).isEqualTo(order.getSimulationRunId());
             assertThat(payload.has("workdayId")).isTrue();
             assertThat(payload.has("settlementCycleId")).isTrue();
         });
@@ -364,11 +369,89 @@ class ArchiveMarketIntegrationTest {
         assertThat(runtimeEventService.byEntityId(order.getOrderId()))
                 .extracting(event -> event.correlationId())
                 .containsOnly(rootCorrelationId);
+        assertThat(runtimeEventService.byEntityId(order.getOrderId()))
+                .extracting(event -> event.eventId())
+                .doesNotHaveDuplicates();
+        assertThat(runtimeEventService.byEntityId(order.getOrderId()))
+                .allSatisfy(event -> {
+                    assertThat(event.orderId()).isEqualTo(order.getOrderId());
+                    assertThat(event.sourceSystem()).isEqualTo("Archive-Market");
+                });
+
+        List<com.csj.archive.market.outbox.MarketOutboxEntity> archiveOsEvents = orderEvents.stream()
+                .filter(event -> event.getTargetService() == OutboxTargetService.ARCHIVE_OS)
+                .toList();
+        assertThat(archiveOsEvents).extracting(com.csj.archive.market.outbox.MarketOutboxEntity::getEventType)
+                .contains("CUSTOMER_DEMAND_CREATED", "SALES_ORDER_PLACED", "ORDER_PROFITABILITY_EVALUATED",
+                        "SALES_ORDER_CONFIRMED", "PAYMENT_CAPTURED");
+        assertThat(archiveOsEvents).extracting(com.csj.archive.market.outbox.MarketOutboxEntity::getEventId)
+                .doesNotHaveDuplicates();
+        assertThat(envelopeFor(archiveOsEvents, "CUSTOMER_DEMAND_CREATED").path("eventId").asText())
+                .isEqualTo(demandEventId);
+        assertThat(envelopeFor(archiveOsEvents, "SALES_ORDER_PLACED").path("eventId").asText())
+                .isEqualTo(orderPlacedEventId);
+        assertThat(envelopeFor(archiveOsEvents, "SALES_ORDER_CONFIRMED").path("eventId").asText())
+                .isEqualTo(confirmationEventId);
+        assertThat(envelopeFor(archiveOsEvents, "PAYMENT_CAPTURED").path("eventId").asText())
+                .isEqualTo(paymentEventId);
+        assertThat(archiveOsEvents).allSatisfy(event -> {
+            JsonNode envelope = readJson(event.getPayload());
+            assertThat(envelope.path("simulationRunId").asText()).isEqualTo(order.getSimulationRunId());
+            assertThat(envelope.path("payload").path("simulationRunId").asText())
+                    .isEqualTo(order.getSimulationRunId());
+        });
+        List<String> archiveOsEventIds = archiveOsEvents.stream()
+                .map(com.csj.archive.market.outbox.MarketOutboxEntity::getEventId)
+                .toList();
+        assertThat(archiveOsEvents.stream()
+                .map(event -> readJson(event.getPayload()).path("causationId").asText(null))
+                .filter(java.util.Objects::nonNull)
+                .toList())
+                .allMatch(archiveOsEventIds::contains);
         assertThatThrownBy(() -> outboxService.create(OutboxTargetService.NEXUS, "MARKET_ORDER_PLACED",
                 "MARKET_ORDER", order.getOrderId(), "SIM-RETRY", null, "CORR-OTHER", demandEventId,
                 Map.of("orderId", order.getOrderId())))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("different correlationId");
+    }
+
+    @Test
+    void simulationRequestUsesOneRunIdAcrossOrdersEventsAndOutboxPayloads() {
+        var result = simulationService.orders(2);
+        assertThat(result.simulationRunId()).startsWith("SIM-");
+
+        List<MarketOrderEntity> simulatedOrders = orderRepository.findAll().stream()
+                .filter(order -> result.simulationRunId().equals(order.getSimulationRunId()))
+                .toList();
+        assertThat(simulatedOrders).hasSize(2);
+
+        for (MarketOrderEntity order : simulatedOrders) {
+            assertThat(revenueRepository.findAll().stream()
+                    .filter(event -> order.getOrderId().equals(event.getOrderId()))
+                    .map(event -> event.getSimulationRunId())
+                    .distinct())
+                    .containsExactly(result.simulationRunId());
+            assertThat(costRepository.findAll().stream()
+                    .filter(event -> order.getOrderId().equals(event.getOrderId()))
+                    .map(event -> event.getSimulationRunId())
+                    .distinct())
+                    .containsExactly(result.simulationRunId());
+            assertThat(outboxRepository.findAll().stream()
+                    .filter(event -> order.getOrderId().equals(event.getAggregateId()))
+                    .map(event -> readJson(event.getPayload()))
+                    .map(envelope -> envelope.path("simulationRunId").asText())
+                    .distinct())
+                    .containsExactly(result.simulationRunId());
+            assertThat(outboxRepository.findAll().stream()
+                    .filter(event -> order.getOrderId().equals(event.getAggregateId()))
+                    .map(event -> readJson(event.getPayload()).path("payload").path("simulationRunId").asText())
+                    .distinct())
+                    .containsExactly(result.simulationRunId());
+            assertThat(runtimeEventService.byEntityId(order.getOrderId()).stream()
+                    .map(event -> event.simulationRunId())
+                    .distinct())
+                    .containsExactly(result.simulationRunId());
+        }
     }
 
     @Test

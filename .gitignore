@@ -6,6 +6,7 @@ target/
 *.iml
 *.log
 .env
+.env.rc
 .env.*
 !.env.example
 local-data/

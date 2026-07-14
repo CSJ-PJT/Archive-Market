@@ -59,7 +59,7 @@ public class ReturnClaimService {
         BigDecimal returnCost = order.getPaymentAmount().multiply(BigDecimal.valueOf(0.08));
         MarketReturnEntity created = returnRepository.save(new MarketReturnEntity(
                 IdGenerator.prefixed("RET"), orderId, "Synthetic return request", order.getPaymentAmount(), "REQUESTED"));
-        String simulationRunId = IdGenerator.prefixed("SIM");
+        String simulationRunId = simulationRunIdFor(order);
         economyService.recordCost(CostType.RETURN_COST_INCURRED, returnCost, order, simulationRunId, null,
                 "Synthetic return handling cost");
         economyService.enqueueRefundRequested(order, simulationRunId);
@@ -85,7 +85,7 @@ public class ReturnClaimService {
         BigDecimal claimAmount = order.getPaymentAmount().multiply(BigDecimal.valueOf(0.15));
         MarketClaimEntity created = claimRepository.save(new MarketClaimEntity(
                 IdGenerator.prefixed("CLM"), orderId, "QUALITY_CLAIM", claimAmount, "CONFIRMED"));
-        String simulationRunId = IdGenerator.prefixed("SIM");
+        String simulationRunId = simulationRunIdFor(order);
         economyService.recordCost(CostType.CLAIM_COMPENSATION_COST_INCURRED, claimAmount, order, simulationRunId,
                 null, "Synthetic claim compensation cost");
         economyService.enqueueClaimCompensation(order, claimAmount, simulationRunId);
@@ -94,5 +94,15 @@ public class ReturnClaimService {
         auditLogService.record(AuditAction.CLAIM_CREATED, "MARKET_CLAIM", created.getClaimId(), before,
                 OrderStatus.CLAIMED.name(), "Synthetic quality claim created");
         return created;
+    }
+
+    private String simulationRunIdFor(MarketOrderEntity order) {
+        if (order.getSimulationRunId() != null && !order.getSimulationRunId().isBlank()) {
+            return order.getSimulationRunId();
+        }
+        // Legacy orders are assigned a lineage only when a new lifecycle action occurs.
+        String legacySimulationRunId = IdGenerator.prefixed("SIM");
+        order.assignSimulationRunId(legacySimulationRunId);
+        return legacySimulationRunId;
     }
 }
