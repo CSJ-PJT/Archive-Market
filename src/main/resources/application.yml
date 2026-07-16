@@ -1,5 +1,8 @@
 server:
   port: 8094
+  max-http-request-header-size: 16KB
+  tomcat:
+    max-swallow-size: 1MB
 
 spring:
   application:
@@ -37,24 +40,40 @@ management:
     tags:
       application: archive-market
 
+archive:
+  security:
+    enabled: ${ARCHIVE_SECURITY_ENABLED:false}
+    max-payload-bytes: ${ARCHIVE_SECURITY_MAX_PAYLOAD_BYTES:1048576}
+    max-batch-items: ${ARCHIVE_SECURITY_MAX_BATCH_ITEMS:100}
+    max-writes-per-minute: ${ARCHIVE_SECURITY_MAX_WRITES_PER_MINUTE:60}
+    allowed-origins: ${ARCHIVE_SECURITY_ALLOWED_ORIGINS:http://127.0.0.1:5173,http://localhost:5173}
+    authenticated-read-token: ${ARCHIVE_TOKEN_AUTHENTICATED_READ:}
+    admin-operator-token: ${ARCHIVE_TOKEN_ADMIN_OPERATOR:}
+  tokens:
+    market-to-nexus: ${ARCHIVE_TOKEN_MARKET_TO_NEXUS:}
+    market-to-ledger: ${ARCHIVE_TOKEN_MARKET_TO_LEDGER:}
+    market-to-os: ${ARCHIVE_TOKEN_MARKET_TO_OS:}
+
 market:
   integration:
     enabled: false
+    internal-synthetic-publish-enabled: ${MARKET_INTERNAL_SYNTHETIC_PUBLISH_ENABLED:false}
     nexus:
       base-url: ${NEXUS_BASE_URL:http://host.docker.internal:8080}
-      publish-path: /api/events/external
+      publish-path: /api/events/market
     ledger:
       base-url: ${LEDGER_BASE_URL:http://host.docker.internal:18080}
-      publish-path: /api/events/external
+      publish-path: /api/events/market
     archiveos:
-      base-url: ${ARCHIVEOS_BASE_URL:http://host.docker.internal:5173}
+      base-url: ${ARCHIVEOS_BASE_URL:http://host.docker.internal:4100}
       publish-path: ${ARCHIVEOS_PUBLISH_PATH:/api/live-flow/events/ingest}
   outbox:
     max-retry-count: ${MARKET_OUTBOX_MAX_RETRY_COUNT:5}
     scheduler:
-      enabled: false
+      enabled: ${MARKET_OUTBOX_SCHEDULER_ENABLED:false}
+      fixed-delay-ms: ${MARKET_OUTBOX_SCHEDULER_FIXED_DELAY_MS:10000}
+      batch-size: ${MARKET_OUTBOX_SCHEDULER_BATCH_SIZE:10}
 
-archive:
   runtime:
     autorun:
       enabled: ${ARCHIVE_RUNTIME_AUTORUN_ENABLED:true}

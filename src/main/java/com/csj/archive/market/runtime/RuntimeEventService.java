@@ -88,9 +88,11 @@ public class RuntimeEventService {
                 .toList());
         events.addAll(revenueRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, boundedLimit)).stream()
                 .filter(this::isProjectedRevenueEvent)
+                .filter(event -> !hasArchiveOsRuntimeProjection(event.getEventId()))
                 .map(this::fromRevenue)
                 .toList());
         events.addAll(assessmentRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, boundedLimit)).stream()
+                .filter(assessment -> !hasArchiveOsRuntimeProjection("RTE-" + assessment.getAssessmentId()))
                 .map(this::fromAssessment)
                 .toList());
         events.addAll(workdaySnapshotRepository.findByOrderByCreatedAtDesc(PageRequest.of(0, boundedLimit)).stream()
@@ -133,9 +135,13 @@ public class RuntimeEventService {
         events.addAll(inboxRepository.findAll().stream().map(this::fromInbox).toList());
         events.addAll(revenueRepository.findAll().stream()
                 .filter(this::isProjectedRevenueEvent)
+                .filter(event -> !hasArchiveOsRuntimeProjection(event.getEventId()))
                 .map(this::fromRevenue)
                 .toList());
-        events.addAll(assessmentRepository.findAll().stream().map(this::fromAssessment).toList());
+        events.addAll(assessmentRepository.findAll().stream()
+                .filter(assessment -> !hasArchiveOsRuntimeProjection("RTE-" + assessment.getAssessmentId()))
+                .map(this::fromAssessment)
+                .toList());
         events.addAll(workdaySnapshotRepository.findAll().stream()
                 .flatMap(snapshot -> fromWorkday(snapshot).stream())
                 .toList());
@@ -147,8 +153,17 @@ public class RuntimeEventService {
 
     private RuntimeEventResponse fromOutbox(MarketOutboxEntity event) {
         Map<String, Object> envelope = parse(event.getPayload());
+        Map<String, Object> payload = nestedMap(envelope.get("payload"));
         String correlationId = stringValue(envelope.get("correlationId"));
         String causationId = stringValue(envelope.get("causationId"));
+        String orderId = firstNonBlank(
+                stringValue(envelope.get("orderId")),
+                stringValue(payload.get("orderId")),
+                "MARKET_ORDER".equals(event.getAggregateType()) ? event.getAggregateId() : null);
+        String entityId = firstNonBlank(
+                stringValue(envelope.get("entityId")),
+                stringValue(payload.get("entityId")),
+                event.getAggregateId());
         Instant occurredAt = instantValue(envelope.get("occurredAt")).orElse(event.getCreatedAt());
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("direction", "outbound");
@@ -161,10 +176,13 @@ public class RuntimeEventService {
                 event.getIdempotencyKey(),
                 SOURCE_SERVICE,
                 event.getTargetService().name(),
+                SOURCE_SERVICE,
+                event.getTargetService().name(),
                 DOMAIN,
                 event.getEventType(),
                 entityType(event.getAggregateType()),
-                event.getAggregateId(),
+                entityId,
+                orderId,
                 correlationId,
                 causationId,
                 stringValue(envelope.get("simulationRunId")),
@@ -172,7 +190,7 @@ public class RuntimeEventService {
                 stringValue(envelope.get("workdayId")),
                 status(event.getStatus(), event.getEventType()),
                 severity(event.getStatus()),
-                displayLabel("outbound", event.getEventType(), event.getAggregateId()),
+                displayLabel("outbound", event.getEventType(), entityId),
                 occurredAt,
                 intValue(envelope.get("hopCount"), 1),
                 intValue(envelope.get("maxHop"), 5),
@@ -194,10 +212,13 @@ public class RuntimeEventService {
                 event.getIdempotencyKey(),
                 SOURCE_SERVICE,
                 null,
+                SOURCE_SERVICE,
+                null,
                 DOMAIN,
                 event.getRevenueType().name(),
                 entityType(null, event.getRevenueType().name()),
                 entityId,
+                event.getOrderId(),
                 rootCorrelationId(entityId),
                 null,
                 event.getSimulationRunId(),
@@ -228,13 +249,16 @@ public class RuntimeEventService {
                 "MARKET:ORDER_PROFITABILITY_EVALUATED:" + assessment.getOrderId(),
                 SOURCE_SERVICE,
                 null,
+                SOURCE_SERVICE,
+                null,
                 DOMAIN,
                 "ORDER_PROFITABILITY_EVALUATED",
                 "order",
                 assessment.getOrderId(),
+                assessment.getOrderId(),
                 rootCorrelationId(assessment.getOrderId()),
                 assessment.getCausationEventId(),
-                null,
+                assessment.getSimulationRunId(),
                 null,
                 null,
                 assessmentStatus(assessment),
@@ -273,10 +297,13 @@ public class RuntimeEventService {
                 "MARKET:" + eventType + ":" + snapshot.getSnapshotId(),
                 SOURCE_SERVICE,
                 null,
+                SOURCE_SERVICE,
+                null,
                 DOMAIN,
                 eventType,
                 "workday",
                 snapshot.getSnapshotId(),
+                null,
                 correlationId(snapshot.getSnapshotId()),
                 snapshot.getSnapshotId(),
                 null,
@@ -295,9 +322,13 @@ public class RuntimeEventService {
     private RuntimeEventResponse fromInbox(MarketInboxEntity event) {
         Map<String, Object> envelope = parse(event.getPayload());
         Map<String, Object> payload = nestedMap(envelope.get("payload"));
+        String orderId = firstNonBlank(
+                stringValue(envelope.get("orderId")),
+                stringValue(payload.get("orderId")));
         String entityId = firstNonBlank(
-                stringValue(payload.get("orderId")),
                 stringValue(payload.get("entityId")),
+                stringValue(envelope.get("entityId")),
+                orderId,
                 stringValue(envelope.get("causationId")),
                 event.getEventId());
         Map<String, Object> metadata = new LinkedHashMap<>();
@@ -309,10 +340,13 @@ public class RuntimeEventService {
                 event.getIdempotencyKey(),
                 event.getSourceService(),
                 SOURCE_SERVICE,
+                event.getSourceService(),
+                SOURCE_SERVICE,
                 DOMAIN,
                 event.getEventType(),
                 entityType(stringValue(payload.get("entityType")), event.getEventType()),
                 entityId,
+                orderId,
                 stringValue(envelope.get("correlationId")),
                 stringValue(envelope.get("causationId")),
                 stringValue(envelope.get("simulationRunId")),
@@ -376,6 +410,10 @@ public class RuntimeEventService {
         return event.getRevenueType() == RevenueType.CUSTOMER_DEMAND_CREATED;
     }
 
+    private boolean hasArchiveOsRuntimeProjection(String eventId) {
+        return outboxRepository.existsByIdempotencyKey("MARKET:ARCHIVE_OS_RUNTIME:" + eventId);
+    }
+
     private String assessmentStatus(OrderProfitabilityAssessmentEntity assessment) {
         if (assessment.getRecommendation() == ProfitabilityRecommendation.REVIEW_REQUIRED) {
             return "WAITING";
@@ -415,11 +453,10 @@ public class RuntimeEventService {
             return "WAITING";
         }
         return switch (status) {
-            case PENDING -> "WAITING";
+            case PENDING, PUBLISHING -> "WAITING";
             case PUBLISHED, DRY_RUN -> "COMPLETED";
-            case RETRY -> "DELAYED";
-            case FAILED -> "FAILED";
-            case SKIPPED -> "FAILED";
+            case RETRY, RETRY_WAIT -> "DELAYED";
+            case FAILED, SKIPPED, DEAD_LETTER -> "FAILED";
         };
     }
 
@@ -434,9 +471,9 @@ public class RuntimeEventService {
 
     private String severity(OutboxStatus status) {
         return switch (status) {
-            case FAILED -> "CRITICAL";
-            case RETRY, SKIPPED -> "WARNING";
-            case PENDING -> "INFO";
+            case FAILED, DEAD_LETTER -> "CRITICAL";
+            case RETRY, RETRY_WAIT, SKIPPED -> "WARNING";
+            case PENDING, PUBLISHING -> "INFO";
             case PUBLISHED, DRY_RUN -> "NORMAL";
         };
     }

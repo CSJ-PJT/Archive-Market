@@ -7,6 +7,7 @@ import java.util.Map;
 import org.slf4j.MDC;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -35,6 +36,11 @@ public class MarketOutboxController {
     @PostMapping("/publish")
     ApiResponse<List<MarketOutboxEntity>> publish() {
         return ApiResponse.ok(publisher.publishPending(), MDC.get(TraceIdFilter.TRACE_ID));
+    }
+
+    @PostMapping("/events/{eventId}/publish")
+    ApiResponse<MarketOutboxEntity> publishSingle(@PathVariable String eventId) {
+        return ApiResponse.ok(publisher.publishEvent(eventId), MDC.get(TraceIdFilter.TRACE_ID));
     }
 
     @PostMapping("/retry-failed")

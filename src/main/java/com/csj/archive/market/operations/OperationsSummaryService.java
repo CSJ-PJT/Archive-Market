@@ -3,6 +3,7 @@ package com.csj.archive.market.operations;
 import com.csj.archive.market.capital.MarketCapitalService;
 import com.csj.archive.market.inbox.MarketInboxService;
 import com.csj.archive.market.outbox.MarketOutboxService;
+import com.csj.archive.market.outbox.MarketOutboxPublisher;
 import com.csj.archive.market.payment.MarketPaymentRepository;
 import com.csj.archive.market.payment.PaymentStatus;
 import com.csj.archive.market.profitability.OrderProfitabilityService;
@@ -27,12 +28,13 @@ public class OperationsSummaryService {
     private final RuntimeEventService runtimeEventService;
     private final RuntimeAutoRunService runtimeAutoRunService;
     private final MarketPaymentRepository paymentRepository;
+    private final MarketOutboxPublisher outboxPublisher;
 
     public OperationsSummaryService(MarketEconomyService economyService, MarketOutboxService outboxService,
                                     MarketInboxService inboxService, MarketDailyCloseRepository dailyCloseRepository,
                                     OrderProfitabilityService profitabilityService, MarketCapitalService capitalService,
                                     RuntimeEventService runtimeEventService, RuntimeAutoRunService runtimeAutoRunService,
-                                    MarketPaymentRepository paymentRepository) {
+                                    MarketPaymentRepository paymentRepository, MarketOutboxPublisher outboxPublisher) {
         this.economyService = economyService;
         this.outboxService = outboxService;
         this.inboxService = inboxService;
@@ -42,6 +44,7 @@ public class OperationsSummaryService {
         this.runtimeEventService = runtimeEventService;
         this.runtimeAutoRunService = runtimeAutoRunService;
         this.paymentRepository = paymentRepository;
+        this.outboxPublisher = outboxPublisher;
     }
 
     @Transactional(readOnly = true)
@@ -59,10 +62,7 @@ public class OperationsSummaryService {
         result.put("inbox", inboxService.summary());
         result.put("profitability", profitabilityAliases(profitabilityService.summary()));
         result.putAll(capitalService.combinedSummary());
-        result.put("integration", Map.of(
-                "nexus", "DRY_RUN_CAPABLE",
-                "ledger", "DRY_RUN_CAPABLE",
-                "archiveOs", "DRY_RUN_CAPABLE"));
+        result.put("integration", integrationSummary());
         result.put("lastDailyClose", dailyCloseRepository.findTopByOrderByCloseDateDescCreatedAtDesc().orElse(null));
         return result;
     }
@@ -80,5 +80,16 @@ public class OperationsSummaryService {
         Map<String, Object> result = new LinkedHashMap<>(profitability);
         result.put("reviewRequired", result.get("reviewRequiredOrders"));
         return result;
+    }
+
+    private Map<String, Object> integrationSummary() {
+        String internalStatus = outboxPublisher.isInternalSyntheticPublishEnabled()
+                ? "INTERNAL_SYNTHETIC_PUBLISH_ENABLED"
+                : "DRY_RUN_ONLY";
+        return Map.of(
+                "nexus", internalStatus,
+                "ledger", internalStatus,
+                "archiveOs", internalStatus,
+                "externalWrite", "EXTERNAL_WRITE_BLOCKED");
     }
 }

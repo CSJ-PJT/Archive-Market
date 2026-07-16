@@ -1,0 +1,24 @@
+spring:
+  config:
+    activate:
+      on-profile: rc
+  datasource:
+    url: ${DB_URL:?DB_URL is required for rc}
+    username: ${DB_USERNAME:?DB_USERNAME is required for rc}
+    password: ${DB_PASSWORD:?DB_PASSWORD is required for rc}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+archive:
+  security:
+    enabled: true
+    authenticated-read-token: ${ARCHIVE_TOKEN_AUTHENTICATED_READ:?ARCHIVE_TOKEN_AUTHENTICATED_READ is required for rc}
+    admin-operator-token: ${ARCHIVE_TOKEN_ADMIN_OPERATOR:?ARCHIVE_TOKEN_ADMIN_OPERATOR is required for rc}
+  tokens:
+    market-to-nexus: ${ARCHIVE_TOKEN_MARKET_TO_NEXUS:?ARCHIVE_TOKEN_MARKET_TO_NEXUS is required for rc}
+    market-to-ledger: ${ARCHIVE_TOKEN_MARKET_TO_LEDGER:?ARCHIVE_TOKEN_MARKET_TO_LEDGER is required for rc}
+    market-to-os: ${ARCHIVE_TOKEN_MARKET_TO_OS:?ARCHIVE_TOKEN_MARKET_TO_OS is required for rc}

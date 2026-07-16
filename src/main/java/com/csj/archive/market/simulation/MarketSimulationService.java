@@ -66,7 +66,7 @@ public class MarketSimulationService {
                     customers.get(i % customers.size()).getCustomerId(),
                     products.get(i % products.size()).getProductId(),
                     1 + random.nextInt(5),
-                    i % 9 == 0));
+                    i % 9 == 0), simulationRunId);
             orderService.confirm(order.getOrderId());
             paymentService.capture(order.getOrderId());
             captured++;
