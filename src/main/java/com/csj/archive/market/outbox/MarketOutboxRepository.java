@@ -14,6 +14,8 @@ public interface MarketOutboxRepository extends JpaRepository<MarketOutboxEntity
 
     Optional<MarketOutboxEntity> findByIdempotencyKey(String idempotencyKey);
 
+    Optional<MarketOutboxEntity> findByEventId(String eventId);
+
     List<MarketOutboxEntity> findTop100ByStatusInOrderByCreatedAtAsc(List<OutboxStatus> statuses);
 
     @Query("""

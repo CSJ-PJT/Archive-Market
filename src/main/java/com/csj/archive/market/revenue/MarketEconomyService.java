@@ -188,14 +188,14 @@ public class MarketEconomyService {
         }
 
         recordAndEnqueueCost(order, simulationRunId, CostType.PRODUCTION_PURCHASE_COST_INCURRED,
-                rate(payment, "0.580"), OutboxTargetService.LEDGER, "PRODUCTION_PURCHASE_COST_INCURRED",
+                rate(payment, "0.580"), OutboxTargetService.ARCHIVE_OS, "PRODUCTION_PURCHASE_COST_INCURRED",
                 "Synthetic purchase cost payable to Archive-Nexus");
         recordAndEnqueueCost(order, simulationRunId, CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED,
-                rate(payment, "0.065").max(BigDecimal.valueOf(20_000)), OutboxTargetService.LEDGER,
+                rate(payment, "0.065").max(BigDecimal.valueOf(20_000)), OutboxTargetService.ARCHIVE_OS,
                 "LOGISTICS_FULFILLMENT_FEE_INCURRED", "Synthetic fulfillment cost payable to Archive-Logistics");
         recordAndEnqueueCost(order, simulationRunId, CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
                 rate(payment, "0.003").add(BigDecimal.valueOf(100)).setScale(2, RoundingMode.HALF_UP),
-                OutboxTargetService.LEDGER, "SETTLEMENT_AGENCY_FEE_INCURRED",
+                OutboxTargetService.ARCHIVE_OS, "SETTLEMENT_AGENCY_FEE_INCURRED",
                 "Synthetic settlement agency fee payable to Archive-Ledger");
         recordAndEnqueueCost(order, simulationRunId, CostType.CONTROL_TOWER_FEE_INCURRED,
                 rate(payment, "0.008"), OutboxTargetService.ARCHIVE_OS, "CONTROL_TOWER_FEE_INCURRED",

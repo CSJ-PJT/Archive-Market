@@ -27,7 +27,7 @@ services:
       DB_PASSWORD: ${MARKET_DB_PASSWORD:?MARKET_DB_PASSWORD is required}
       NEXUS_BASE_URL: http://host.docker.internal:8080
       LEDGER_BASE_URL: http://host.docker.internal:18080
-      ARCHIVEOS_BASE_URL: http://host.docker.internal:4100
+      ARCHIVEOS_BASE_URL: ${ARCHIVEOS_BASE_URL:-http://archiveos-ai:4100}
       ARCHIVE_TOKEN_MARKET_TO_NEXUS: ${ARCHIVE_TOKEN_MARKET_TO_NEXUS:-}
       ARCHIVE_TOKEN_MARKET_TO_LEDGER: ${ARCHIVE_TOKEN_MARKET_TO_LEDGER:-}
       ARCHIVE_TOKEN_MARKET_TO_OS: ${ARCHIVE_TOKEN_MARKET_TO_OS:-}
@@ -36,11 +36,19 @@ services:
       ARCHIVE_SECURITY_ENABLED: ${ARCHIVE_SECURITY_ENABLED:-false}
       ARCHIVE_SECURITY_ALLOWED_ORIGINS: ${ARCHIVE_SECURITY_ALLOWED_ORIGINS:-http://127.0.0.1:5173,http://localhost:5173}
       MARKET_INTEGRATION_ENABLED: "false"
-      MARKET_INTERNAL_SYNTHETIC_PUBLISH_ENABLED: "true"
-      MARKET_OUTBOX_SCHEDULER_ENABLED: "true"
-      MARKET_OUTBOX_SCHEDULER_BATCH_SIZE: "10"
+      MARKET_INTERNAL_SYNTHETIC_PUBLISH_ENABLED: ${MARKET_INTERNAL_SYNTHETIC_PUBLISH_ENABLED:-false}
+      MARKET_OUTBOX_SCHEDULER_ENABLED: ${MARKET_OUTBOX_SCHEDULER_ENABLED:-false}
+      MARKET_OUTBOX_SCHEDULER_BATCH_SIZE: ${MARKET_OUTBOX_SCHEDULER_BATCH_SIZE:-10}
     ports:
       - "127.0.0.1:8094:8094"
+    networks:
+      - default
+      - archive-runtime
 
 volumes:
   archive-market-postgres-data:
+
+networks:
+  archive-runtime:
+    external: true
+    name: archive-runtime

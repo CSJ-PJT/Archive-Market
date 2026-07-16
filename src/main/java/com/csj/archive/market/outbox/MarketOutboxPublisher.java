@@ -57,6 +57,32 @@ public class MarketOutboxPublisher {
         }
     }
 
+    /** Publishes exactly one identified event; it never selects a backlog candidate. */
+    @Transactional
+    public MarketOutboxEntity publishEvent(String eventId) {
+        MarketOutboxEntity event = outboxRepository.findByEventId(eventId)
+                .orElseThrow(() -> new IllegalArgumentException("Outbox event not found: " + eventId));
+        if (event.getStatus() == OutboxStatus.PUBLISHED || event.getStatus() == OutboxStatus.SKIPPED
+                || event.getStatus() == OutboxStatus.DEAD_LETTER) return event;
+        Instant now = Instant.now(clock);
+        try {
+            event.markPublishing();
+            switch (event.getTargetService()) {
+                case NEXUS -> nexusClient.publish(event.getPayload());
+                case LOGISTICS -> throw new IllegalStateException("Market does not directly publish Logistics events; Nexus owns shipment relay");
+                case LEDGER -> ledgerClient.publish(event.getPayload());
+                case ARCHIVE_OS -> archiveOsClient.publish(event.getPayload());
+            }
+            event.markPublished(now);
+        } catch (ArchiveOsPublishException ex) {
+            if (ex.isRetryable()) retryOrDeadLetter(event, now, ex);
+            else event.markDeadLetter(now, safeMessage(ex));
+        } catch (RuntimeException ex) {
+            retryOrDeadLetter(event, now, ex);
+        }
+        return event;
+    }
+
     private List<MarketOutboxEntity> publishApprovedEvents() {
         Instant now = Instant.now(clock);
         List<MarketOutboxEntity> priority = outboxRepository.findNewestPublishable(
