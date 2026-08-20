@@ -18,6 +18,12 @@ public interface MarketRevenueEventRepository extends JpaRepository<MarketRevenu
     @Query("select coalesce(sum(e.revenueAmount), 0) from MarketRevenueEventEntity e where e.revenueType in :types")
     BigDecimal totalRevenueByTypes(Iterable<RevenueType> types);
 
+    @Query("select coalesce(sum(e.revenueAmount), 0) from MarketRevenueEventEntity e where e.revenueType in :types and e.createdAt >= :from and e.createdAt <= :to")
+    BigDecimal totalRevenueByTypesBetween(Iterable<RevenueType> types, Instant from, Instant to);
+
+    @Query("select max(e.createdAt) from MarketRevenueEventEntity e where e.createdAt >= :from and e.createdAt <= :to")
+    java.util.Optional<Instant> findLatestCreatedAtBetween(Instant from, Instant to);
+
     @Query("select min(e.createdAt) from MarketRevenueEventEntity e")
     java.util.Optional<Instant> findEarliestCreatedAt();
 

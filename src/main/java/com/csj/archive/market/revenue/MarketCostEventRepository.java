@@ -14,6 +14,15 @@ public interface MarketCostEventRepository extends JpaRepository<MarketCostEvent
     @Query("select coalesce(sum(e.costAmount), 0) from MarketCostEventEntity e where e.costType in :types")
     BigDecimal totalCostByTypes(Iterable<CostType> types);
 
+    @Query("select coalesce(sum(e.costAmount), 0) from MarketCostEventEntity e where e.createdAt >= :from and e.createdAt <= :to")
+    BigDecimal totalCostBetween(Instant from, Instant to);
+
+    @Query("select coalesce(sum(e.costAmount), 0) from MarketCostEventEntity e where e.costType in :types and e.createdAt >= :from and e.createdAt <= :to")
+    BigDecimal totalCostByTypesBetween(Iterable<CostType> types, Instant from, Instant to);
+
+    @Query("select max(e.createdAt) from MarketCostEventEntity e where e.createdAt >= :from and e.createdAt <= :to")
+    java.util.Optional<Instant> findLatestCreatedAtBetween(Instant from, Instant to);
+
     @Query("select min(e.createdAt) from MarketCostEventEntity e")
     java.util.Optional<Instant> findEarliestCreatedAt();
 

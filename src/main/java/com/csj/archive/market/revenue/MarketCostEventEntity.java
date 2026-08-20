@@ -92,4 +92,8 @@ public class MarketCostEventEntity {
     public BigDecimal getCostAmount() {
         return costAmount;
     }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

@@ -15,6 +15,7 @@ import com.csj.archive.market.profitability.OrderProfitabilityService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Comparator;
@@ -23,7 +24,6 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -352,13 +352,17 @@ public class MarketEconomyService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> financialSummary() {
-        BigDecimal gmv = orderRepository.totalGmv();
-        BigDecimal capturedPayment = paymentRepository.totalAmountByPaymentStatus(PaymentStatus.CAPTURED);
-        BigDecimal grossSalesEvents = revenueRepository.totalRevenueByTypes(List.of(RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED));
-        BigDecimal recognizedRevenue = revenueRepository.totalRevenueByTypes(RECOGNIZED_REVENUE_TYPES);
-        BigDecimal totalExpense = costRepository.totalCost();
-        BigDecimal reserveBalance = costRepository.totalCostByTypes(RESERVE_COST_TYPES);
-        BigDecimal outstandingPayables = costRepository.totalCostByTypes(PAYABLE_COST_TYPES);
+        Instant calculatedAt = Instant.now(clock);
+        Instant windowStart = calculatedAt.minus(Duration.ofHours(24));
+        BigDecimal gmv = orderRepository.totalGmvBetween(windowStart, calculatedAt);
+        BigDecimal capturedPayment = paymentRepository.totalAmountByPaymentStatusBetween(PaymentStatus.CAPTURED, windowStart, calculatedAt);
+        BigDecimal grossSalesEvents = revenueRepository.totalRevenueByTypesBetween(
+                List.of(RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED), windowStart, calculatedAt);
+        BigDecimal recognizedRevenue = revenueRepository.totalRevenueByTypesBetween(
+                RECOGNIZED_REVENUE_TYPES, windowStart, calculatedAt);
+        BigDecimal totalExpense = costRepository.totalCostBetween(windowStart, calculatedAt);
+        BigDecimal reserveBalance = costRepository.totalCostByTypesBetween(RESERVE_COST_TYPES, windowStart, calculatedAt);
+        BigDecimal outstandingPayables = costRepository.totalCostByTypesBetween(PAYABLE_COST_TYPES, windowStart, calculatedAt);
         BigDecimal operatingProfit = recognizedRevenue.subtract(totalExpense);
         BigDecimal operatingMargin = percentage(operatingProfit, recognizedRevenue);
         BigDecimal pendingSettlement = capturedPayment.multiply(BigDecimal.valueOf(0.18)).setScale(2, RoundingMode.HALF_UP);
@@ -378,18 +382,18 @@ public class MarketEconomyService {
         result.put("reserveBalance", reserveBalance);
         result.put("outstandingPayables", outstandingPayables);
         result.put("pendingSettlementAmount", pendingSettlement);
-        result.put("workforceCost", costByType(CostType.MARKET_PAYROLL_BOOKED));
-        result.put("productionPurchaseCost", costByType(CostType.PRODUCTION_PURCHASE_COST_INCURRED));
-        result.put("logisticsFulfillmentCost", costByType(CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED));
-        result.put("settlementAgencyFee", costByType(CostType.SETTLEMENT_AGENCY_FEE_INCURRED));
-        result.put("controlTowerFee", costByType(CostType.CONTROL_TOWER_FEE_INCURRED));
+        result.put("workforceCost", costByTypeBetween(CostType.MARKET_PAYROLL_BOOKED, windowStart, calculatedAt));
+        result.put("productionPurchaseCost", costByTypeBetween(CostType.PRODUCTION_PURCHASE_COST_INCURRED, windowStart, calculatedAt));
+        result.put("logisticsFulfillmentCost", costByTypeBetween(CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED, windowStart, calculatedAt));
+        result.put("settlementAgencyFee", costByTypeBetween(CostType.SETTLEMENT_AGENCY_FEE_INCURRED, windowStart, calculatedAt));
+        result.put("controlTowerFee", costByTypeBetween(CostType.CONTROL_TOWER_FEE_INCURRED, windowStart, calculatedAt));
         result.put("backlogCount", workforce.get("backlog"));
         result.put("capacityUtilization", workforce.get("capacityUtilization"));
         result.put("negativeProfitStreak", negativeProfitStreak(operatingProfit));
-        result.putAll(calculationMetadata());
+        result.putAll(calculationMetadata(windowStart, calculatedAt));
         result.put("cashDeltaReason", cashDeltaReason(recognizedRevenue, totalExpense, pendingSettlement, cashBalance));
-        result.put("topRevenueDrivers", topRevenueDrivers());
-        result.put("topExpenseDrivers", topExpenseDrivers());
+        result.put("topRevenueDrivers", topRevenueDrivers(windowStart, calculatedAt));
+        result.put("topExpenseDrivers", topExpenseDrivers(windowStart, calculatedAt));
         result.put("currency", "SYNTHETIC_KRW");
         return result;
     }
@@ -417,26 +421,20 @@ public class MarketEconomyService {
                 .divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
     }
 
-    private Map<String, Object> calculationMetadata() {
-        List<Instant> earliest = List.of(
-                orderRepository.findEarliestCreatedAt(),
-                revenueRepository.findEarliestCreatedAt(),
-                costRepository.findEarliestCreatedAt()).stream()
-                .flatMap(Optional::stream)
-                .toList();
+    private Map<String, Object> calculationMetadata(Instant windowStart, Instant calculatedAt) {
         List<Instant> latest = List.of(
-                orderRepository.findLatestCreatedAt(),
-                revenueRepository.findLatestCreatedAt(),
-                costRepository.findLatestCreatedAt()).stream()
-                .flatMap(Optional::stream)
+                revenueRepository.findLatestCreatedAtBetween(windowStart, calculatedAt),
+                costRepository.findLatestCreatedAtBetween(windowStart, calculatedAt)).stream()
+                .flatMap(java.util.Optional::stream)
                 .toList();
-        Instant calculatedAt = Instant.now(clock);
         Map<String, Object> metadata = new LinkedHashMap<>();
-        metadata.put("calculationScope", "LIFETIME");
-        metadata.put("periodStart", earliest.stream().min(Instant::compareTo).orElse(null));
-        metadata.put("periodEnd", latest.stream().max(Instant::compareTo).orElse(null));
+        Instant sourceLatestEventAt = latest.stream().max(Instant::compareTo).orElse(null);
+        metadata.put("calculationScope", "ROLLING_24H_RECOGNIZED_EVENTS");
+        metadata.put("periodStart", windowStart);
+        metadata.put("periodEnd", calculatedAt);
         metadata.put("calculatedAt", calculatedAt);
-        metadata.put("dataAvailable", !earliest.isEmpty());
+        metadata.put("sourceLatestEventAt", sourceLatestEventAt);
+        metadata.put("dataAvailable", sourceLatestEventAt != null);
         return metadata;
     }
 
@@ -448,8 +446,8 @@ public class MarketEconomyService {
                 .divide(total, 2, RoundingMode.HALF_UP);
     }
 
-    private BigDecimal costByType(CostType costType) {
-        return costRepository.totalCostByTypes(List.of(costType));
+    private BigDecimal costByTypeBetween(CostType costType, Instant from, Instant to) {
+        return costRepository.totalCostByTypesBetween(List.of(costType), from, to);
     }
 
     private long negativeProfitStreak(BigDecimal currentOperatingProfit) {
@@ -502,9 +500,11 @@ public class MarketEconomyService {
                 + ", pendingSettlement=" + pendingSettlement + ", cashBalance=" + cashBalance;
     }
 
-    private List<Map<String, Object>> topRevenueDrivers() {
+    private List<Map<String, Object>> topRevenueDrivers(Instant from, Instant to) {
         Map<RevenueType, BigDecimal> totals = new EnumMap<>(RevenueType.class);
         revenueRepository.findAll().stream()
+                .filter(event -> event.getCreatedAt() != null
+                        && !event.getCreatedAt().isBefore(from) && !event.getCreatedAt().isAfter(to))
                 .filter(event -> RECOGNIZED_REVENUE_TYPES.contains(event.getRevenueType()))
                 .forEach(event -> totals.merge(event.getRevenueType(), event.getRevenueAmount(), BigDecimal::add));
         return totals.entrySet().stream()
@@ -514,9 +514,12 @@ public class MarketEconomyService {
                 .toList();
     }
 
-    private List<Map<String, Object>> topExpenseDrivers() {
+    private List<Map<String, Object>> topExpenseDrivers(Instant from, Instant to) {
         Map<CostType, BigDecimal> totals = new EnumMap<>(CostType.class);
-        costRepository.findAll().forEach(event -> totals.merge(event.getCostType(), event.getCostAmount(), BigDecimal::add));
+        costRepository.findAll().stream()
+                .filter(event -> event.getCreatedAt() != null
+                        && !event.getCreatedAt().isBefore(from) && !event.getCreatedAt().isAfter(to))
+                .forEach(event -> totals.merge(event.getCostType(), event.getCostAmount(), BigDecimal::add));
         return totals.entrySet().stream()
                 .sorted(Map.Entry.<CostType, BigDecimal>comparingByValue(Comparator.reverseOrder()))
                 .limit(8)

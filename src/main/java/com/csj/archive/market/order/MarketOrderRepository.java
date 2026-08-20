@@ -17,6 +17,9 @@ public interface MarketOrderRepository extends JpaRepository<MarketOrderEntity, 
     @Query("select coalesce(sum(o.totalOrderAmount), 0) from MarketOrderEntity o")
     java.math.BigDecimal totalGmv();
 
+    @Query("select coalesce(sum(o.totalOrderAmount), 0) from MarketOrderEntity o where o.createdAt >= :from and o.createdAt <= :to")
+    java.math.BigDecimal totalGmvBetween(Instant from, Instant to);
+
     @Query("select coalesce(sum(o.paymentAmount), 0) from MarketOrderEntity o")
     java.math.BigDecimal totalPaymentAmount();
 

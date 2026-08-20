@@ -1,5 +1,6 @@
 package com.csj.archive.market.payment;
 
+import java.time.Instant;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -11,4 +12,7 @@ public interface MarketPaymentRepository extends JpaRepository<MarketPaymentEnti
 
     @Query("select coalesce(sum(p.amount), 0) from MarketPaymentEntity p where p.paymentStatus = :paymentStatus")
     java.math.BigDecimal totalAmountByPaymentStatus(PaymentStatus paymentStatus);
+
+    @Query("select coalesce(sum(p.amount), 0) from MarketPaymentEntity p where p.paymentStatus = :paymentStatus and p.createdAt >= :from and p.createdAt <= :to")
+    java.math.BigDecimal totalAmountByPaymentStatusBetween(PaymentStatus paymentStatus, Instant from, Instant to);
 }

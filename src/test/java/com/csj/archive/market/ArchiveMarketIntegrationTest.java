@@ -205,7 +205,7 @@ class ArchiveMarketIntegrationTest {
                 .andExpect(jsonPath("$.data.economy.totalExpense").exists())
                 .andExpect(jsonPath("$.data.economy.operatingProfit").exists())
                 .andExpect(jsonPath("$.data.economy.operatingMargin").exists())
-                .andExpect(jsonPath("$.data.economy.calculationScope").value("LIFETIME"))
+                .andExpect(jsonPath("$.data.economy.calculationScope").value("ROLLING_24H_RECOGNIZED_EVENTS"))
                 .andExpect(jsonPath("$.data.economy.periodStart").exists())
                 .andExpect(jsonPath("$.data.economy.periodEnd").exists())
                 .andExpect(jsonPath("$.data.economy.calculatedAt").exists())
