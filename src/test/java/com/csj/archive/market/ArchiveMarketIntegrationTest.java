@@ -24,6 +24,7 @@ import com.csj.archive.market.order.CreateOrderRequest;
 import com.csj.archive.market.order.MarketOrderEntity;
 import com.csj.archive.market.order.MarketOrderRepository;
 import com.csj.archive.market.order.MarketOrderService;
+import com.csj.archive.market.order.OrderStatus;
 import com.csj.archive.market.outbox.MarketOutboxPublisher;
 import com.csj.archive.market.outbox.MarketOutboxRepository;
 import com.csj.archive.market.outbox.MarketOutboxService;
@@ -637,6 +638,7 @@ class ArchiveMarketIntegrationTest {
                     .isEqualTo(PaymentStatus.CAPTURED);
         } else {
             assertThat(paymentRepository.findByOrderId(autoRunOrder.getOrderId())).isEmpty();
+            assertThat(autoRunOrder.getOrderStatus()).isEqualTo(OrderStatus.CANCELLED);
         }
 
         long ordersAfterFirstTick = orderRepository.count();

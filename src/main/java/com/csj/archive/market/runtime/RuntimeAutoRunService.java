@@ -131,7 +131,8 @@ public class RuntimeAutoRunService {
         MarketOrderEntity order = orderService.create(new CreateOrderRequest(null, product.getProductId(), 1, false));
         ProfitabilityRecommendation recommendation = profitabilityService.get(order.getOrderId()).getRecommendation();
         if (recommendation != ProfitabilityRecommendation.ACCEPT) {
-            log.info("Autonomous Market order retained without confirmation: orderId={}, recommendation={}",
+            orderService.cancel(order.getOrderId());
+            log.info("Autonomous Market order closed without confirmation: orderId={}, recommendation={}",
                     order.getOrderId(), recommendation);
             return;
         }

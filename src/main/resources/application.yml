@@ -72,7 +72,7 @@ market:
     scheduler:
       enabled: ${MARKET_OUTBOX_SCHEDULER_ENABLED:false}
       fixed-delay-ms: ${MARKET_OUTBOX_SCHEDULER_FIXED_DELAY_MS:10000}
-      batch-size: ${MARKET_OUTBOX_SCHEDULER_BATCH_SIZE:10}
+      batch-size: ${MARKET_OUTBOX_SCHEDULER_BATCH_SIZE:8}
 
   runtime:
     autorun:

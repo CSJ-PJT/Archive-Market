@@ -123,7 +123,8 @@ public class MarketOutboxService {
     @Transactional
     public List<MarketOutboxEntity> markFailedForRetry() {
         List<MarketOutboxEntity> failed = outboxRepository.findTop100ByStatusInOrderByCreatedAtAsc(
-                List.of(OutboxStatus.FAILED, OutboxStatus.RETRY, OutboxStatus.RETRY_WAIT));
+                List.of(OutboxStatus.FAILED, OutboxStatus.RETRY, OutboxStatus.RETRY_WAIT,
+                        OutboxStatus.DEAD_LETTER));
         failed.forEach(event -> event.markFailed("manual retry requested", Instant.now(clock)));
         return failed;
     }

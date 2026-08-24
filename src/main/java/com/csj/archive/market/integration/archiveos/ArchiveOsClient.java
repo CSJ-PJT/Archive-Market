@@ -50,7 +50,7 @@ public class ArchiveOsClient {
         } catch (ArchiveOsPublishException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            throw new ArchiveOsPublishException("ARCHIVEOS_REQUEST_FAILED", false);
+            throw new ArchiveOsPublishException("ARCHIVEOS_REQUEST_FAILED", true);
         }
     }
 }
