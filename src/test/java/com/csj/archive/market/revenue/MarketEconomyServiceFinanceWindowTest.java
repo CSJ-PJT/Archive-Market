@@ -25,7 +25,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
 class MarketEconomyServiceFinanceWindowTest {
     private static final Instant NOW = Instant.parse("2026-08-20T03:00:00Z");
     private static final Instant START = NOW.minus(Duration.ofHours(24));
@@ -64,6 +63,30 @@ class MarketEconomyServiceFinanceWindowTest {
 
         assertThat(summary).containsEntry("dataAvailable", true)
                 .containsEntry("sourceLatestEventAt", NOW.minus(Duration.ofMinutes(5)));
+    }
+
+    @Test
+    void operatingProfitExcludesPassThroughDiscountAndReserveAllocations() {
+        stubWindowTotals();
+        when(revenueRepository.totalRevenueByTypesBetween(any(), eq(START), eq(NOW)))
+                .thenReturn(new BigDecimal("132000"));
+        when(costRepository.totalCostBetween(START, NOW)).thenReturn(new BigDecimal("900000"));
+        when(costRepository.totalCostByTypesBetween(any(), eq(START), eq(NOW)))
+                .thenAnswer(invocation -> {
+                    Iterable<CostType> types = invocation.getArgument(0);
+                    boolean operating = false;
+                    for (CostType type : types) {
+                        if (type == CostType.MARKET_OPERATION_COST_INCURRED) operating = true;
+                    }
+                    return operating ? new BigDecimal("100000") : BigDecimal.ZERO;
+                });
+
+        Map<String, Object> summary = service().financialSummary();
+
+        assertThat(summary).containsEntry("recognizedRevenue", new BigDecimal("132000"))
+                .containsEntry("totalExpense", new BigDecimal("100000"))
+                .containsEntry("totalRecordedCost", new BigDecimal("900000"))
+                .containsEntry("operatingProfit", new BigDecimal("32000"));
     }
 
     private void stubWindowTotals() {

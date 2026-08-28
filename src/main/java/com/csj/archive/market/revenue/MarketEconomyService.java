@@ -49,6 +49,22 @@ public class MarketEconomyService {
             CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED,
             CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
             CostType.CONTROL_TOWER_FEE_INCURRED);
+    private static final EnumSet<CostType> OPERATING_EXPENSE_TYPES = EnumSet.of(
+            CostType.CUSTOMER_ACQUISITION_COST_INCURRED,
+            CostType.PAYMENT_PROCESSING_FEE_PAID,
+            CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
+            CostType.CONTROL_TOWER_FEE_INCURRED,
+            CostType.MARKET_PAYROLL_BOOKED,
+            CostType.INVENTORY_HOLDING_COST_INCURRED,
+            CostType.EMERGENCY_SURCHARGE_INCURRED,
+            CostType.RETURN_COST_INCURRED,
+            CostType.CLAIM_COMPENSATION_COST_INCURRED,
+            CostType.MARKET_OPERATION_COST_INCURRED,
+            CostType.BAD_DEBT_COST_INCURRED);
+    private static final BigDecimal PLATFORM_FEE_RATE = new BigDecimal("0.100");
+    private static final BigDecimal PAYMENT_PROCESSING_REVENUE_RATE = new BigDecimal("0.024");
+    private static final BigDecimal OPTIONAL_SERVICE_REVENUE_RATE = new BigDecimal("0.008");
+    private static final BigDecimal B2B_SERVICE_REVENUE_RATE = new BigDecimal("0.012");
 
     private final MarketRevenueEventRepository revenueRepository;
     private final MarketCostEventRepository costRepository;
@@ -176,14 +192,17 @@ public class MarketEconomyService {
     @Transactional
     public void recordFinancialRebalancingForCapturedOrder(MarketOrderEntity order, String simulationRunId) {
         BigDecimal payment = order.getPaymentAmount();
-        recordRevenue(RevenueType.PLATFORM_FEE_REVENUE_RECOGNIZED, rate(payment, "0.070"), order,
+        recordRevenue(RevenueType.PLATFORM_FEE_REVENUE_RECOGNIZED, rate(payment, PLATFORM_FEE_RATE), order,
                 simulationRunId, null, "Synthetic platform fee recognized; GMV is tracked separately");
-        recordRevenue(RevenueType.PAYMENT_PROCESSING_FEE_REVENUE_RECOGNIZED, rate(payment, "0.024"), order,
+        recordRevenue(RevenueType.PAYMENT_PROCESSING_FEE_REVENUE_RECOGNIZED,
+                rate(payment, PAYMENT_PROCESSING_REVENUE_RATE), order,
                 simulationRunId, null, "Synthetic payment processing fee revenue");
-        recordRevenue(RevenueType.OPTIONAL_SERVICE_FEE_RECOGNIZED, rate(payment, "0.008"), order,
+        recordRevenue(RevenueType.OPTIONAL_SERVICE_FEE_RECOGNIZED,
+                rate(payment, OPTIONAL_SERVICE_REVENUE_RATE), order,
                 simulationRunId, null, "Synthetic optional service fee revenue");
         if (order.getCustomerType().name().equals("B2B_CUSTOMER")) {
-            recordRevenue(RevenueType.B2B_CONTRACT_REVENUE_RECOGNIZED, rate(payment, "0.012"), order,
+            recordRevenue(RevenueType.B2B_CONTRACT_REVENUE_RECOGNIZED,
+                    rate(payment, B2B_SERVICE_REVENUE_RATE), order,
                     simulationRunId, null, "Synthetic B2B account service fee revenue");
         }
 
@@ -360,15 +379,20 @@ public class MarketEconomyService {
                 List.of(RevenueType.PRODUCT_SALES_REVENUE_RECOGNIZED), windowStart, calculatedAt);
         BigDecimal recognizedRevenue = revenueRepository.totalRevenueByTypesBetween(
                 RECOGNIZED_REVENUE_TYPES, windowStart, calculatedAt);
-        BigDecimal totalExpense = costRepository.totalCostBetween(windowStart, calculatedAt);
+        BigDecimal totalRecordedCost = costRepository.totalCostBetween(windowStart, calculatedAt);
+        BigDecimal totalExpense = costRepository.totalCostByTypesBetween(
+                OPERATING_EXPENSE_TYPES, windowStart, calculatedAt);
         BigDecimal reserveBalance = costRepository.totalCostByTypesBetween(RESERVE_COST_TYPES, windowStart, calculatedAt);
         BigDecimal outstandingPayables = costRepository.totalCostByTypesBetween(PAYABLE_COST_TYPES, windowStart, calculatedAt);
+        BigDecimal passThroughCost = costRepository.totalCostByTypesBetween(
+                List.of(CostType.PRODUCTION_PURCHASE_COST_INCURRED,
+                        CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED), windowStart, calculatedAt);
+        BigDecimal discountFunding = costByTypeBetween(CostType.DISCOUNT_COST_INCURRED, windowStart, calculatedAt);
         BigDecimal operatingProfit = recognizedRevenue.subtract(totalExpense);
         BigDecimal operatingMargin = percentage(operatingProfit, recognizedRevenue);
         BigDecimal pendingSettlement = capturedPayment.multiply(BigDecimal.valueOf(0.18)).setScale(2, RoundingMode.HALF_UP);
         BigDecimal cashBalance = OPENING_CASH.add(recognizedRevenue)
                 .subtract(totalExpense)
-                .subtract(pendingSettlement)
                 .setScale(2, RoundingMode.HALF_UP);
         Map<String, Object> workforce = capitalService.workforceSummary();
         Map<String, Object> result = new LinkedHashMap<>();
@@ -376,6 +400,9 @@ public class MarketEconomyService {
         result.put("grossSalesEvents", grossSalesEvents);
         result.put("recognizedRevenue", recognizedRevenue);
         result.put("totalExpense", totalExpense);
+        result.put("totalRecordedCost", totalRecordedCost);
+        result.put("passThroughCost", passThroughCost);
+        result.put("discountFunding", discountFunding);
         result.put("operatingProfit", operatingProfit);
         result.put("operatingMargin", operatingMargin);
         result.put("cashBalance", cashBalance);
@@ -391,9 +418,10 @@ public class MarketEconomyService {
         result.put("capacityUtilization", workforce.get("capacityUtilization"));
         result.put("negativeProfitStreak", negativeProfitStreak(operatingProfit));
         result.putAll(calculationMetadata(windowStart, calculatedAt));
-        result.put("cashDeltaReason", cashDeltaReason(recognizedRevenue, totalExpense, pendingSettlement, cashBalance));
+        result.put("cashDeltaReason", cashDeltaReason(recognizedRevenue, totalExpense, cashBalance));
         result.put("topRevenueDrivers", topRevenueDrivers(windowStart, calculatedAt));
         result.put("topExpenseDrivers", topExpenseDrivers(windowStart, calculatedAt));
+        result.put("topRecordedCostDrivers", topRecordedCostDrivers(windowStart, calculatedAt));
         result.put("currency", "SYNTHETIC_KRW");
         return result;
     }
@@ -481,9 +509,11 @@ public class MarketEconomyService {
 
     private BigDecimal recognizedRevenueFor(MarketOrderEntity order) {
         BigDecimal payment = order.getPaymentAmount();
-        BigDecimal revenue = rate(payment, "0.102");
+        BigDecimal revenue = rate(payment, PLATFORM_FEE_RATE
+                .add(PAYMENT_PROCESSING_REVENUE_RATE)
+                .add(OPTIONAL_SERVICE_REVENUE_RATE));
         if (order.getCustomerType().name().equals("B2B_CUSTOMER")) {
-            revenue = revenue.add(rate(payment, "0.012"));
+            revenue = revenue.add(rate(payment, B2B_SERVICE_REVENUE_RATE));
         }
         return revenue.setScale(2, RoundingMode.HALF_UP);
     }
@@ -492,12 +522,16 @@ public class MarketEconomyService {
         return amount.multiply(new BigDecimal(rate)).setScale(2, RoundingMode.HALF_UP);
     }
 
-    private String cashDeltaReason(BigDecimal recognizedRevenue, BigDecimal totalExpense, BigDecimal pendingSettlement,
-                                   BigDecimal cashBalance) {
-        return "Opening synthetic cash plus fee-based recognized revenue, minus ecosystem payables, reserves, "
-                + "operating expense, and pending settlement. Gross GMV is not treated as Market profit. "
+    private BigDecimal rate(BigDecimal amount, BigDecimal rate) {
+        return amount.multiply(rate).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private String cashDeltaReason(BigDecimal recognizedRevenue, BigDecimal totalExpense, BigDecimal cashBalance) {
+        return "Opening synthetic cash plus fee-based recognized revenue, minus Market-owned realized operating "
+                + "expense. Ecosystem pass-through payables, discounts already reflected in payment, reserve "
+                + "allocations, and pending settlement are disclosed separately and are not double-counted in P&L. "
                 + "recognizedRevenue=" + recognizedRevenue + ", totalExpense=" + totalExpense
-                + ", pendingSettlement=" + pendingSettlement + ", cashBalance=" + cashBalance;
+                + ", cashBalance=" + cashBalance;
     }
 
     private List<Map<String, Object>> topRevenueDrivers(Instant from, Instant to) {
@@ -515,14 +549,23 @@ public class MarketEconomyService {
     }
 
     private List<Map<String, Object>> topExpenseDrivers(Instant from, Instant to) {
+        return costDrivers(from, to, true, 5);
+    }
+
+    private List<Map<String, Object>> topRecordedCostDrivers(Instant from, Instant to) {
+        return costDrivers(from, to, false, 8);
+    }
+
+    private List<Map<String, Object>> costDrivers(Instant from, Instant to, boolean operatingOnly, int limit) {
         Map<CostType, BigDecimal> totals = new EnumMap<>(CostType.class);
         costRepository.findAll().stream()
                 .filter(event -> event.getCreatedAt() != null
                         && !event.getCreatedAt().isBefore(from) && !event.getCreatedAt().isAfter(to))
+                .filter(event -> !operatingOnly || OPERATING_EXPENSE_TYPES.contains(event.getCostType()))
                 .forEach(event -> totals.merge(event.getCostType(), event.getCostAmount(), BigDecimal::add));
         return totals.entrySet().stream()
                 .sorted(Map.Entry.<CostType, BigDecimal>comparingByValue(Comparator.reverseOrder()))
-                .limit(8)
+                .limit(limit)
                 .map(entry -> Map.<String, Object>of("type", entry.getKey().name(), "amount", entry.getValue()))
                 .toList();
     }
