@@ -47,6 +47,18 @@ public class MarketCapitalService {
             CostType.LOGISTICS_FULFILLMENT_FEE_INCURRED,
             CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
             CostType.CONTROL_TOWER_FEE_INCURRED);
+    private static final EnumSet<CostType> OPERATING_EXPENSE_TYPES = EnumSet.of(
+            CostType.CUSTOMER_ACQUISITION_COST_INCURRED,
+            CostType.PAYMENT_PROCESSING_FEE_PAID,
+            CostType.SETTLEMENT_AGENCY_FEE_INCURRED,
+            CostType.CONTROL_TOWER_FEE_INCURRED,
+            CostType.MARKET_PAYROLL_BOOKED,
+            CostType.INVENTORY_HOLDING_COST_INCURRED,
+            CostType.EMERGENCY_SURCHARGE_INCURRED,
+            CostType.RETURN_COST_INCURRED,
+            CostType.CLAIM_COMPENSATION_COST_INCURRED,
+            CostType.MARKET_OPERATION_COST_INCURRED,
+            CostType.BAD_DEBT_COST_INCURRED);
 
     private final MarketWorkforceAllocationRepository workforceRepository;
     private final MarketWorkdaySnapshotRepository snapshotRepository;
@@ -75,7 +87,8 @@ public class MarketCapitalService {
     @Transactional(readOnly = true)
     public Map<String, Object> cashflowSummary() {
         BigDecimal revenue = revenueRepository.totalRevenueByTypes(RECOGNIZED_REVENUE_TYPES);
-        BigDecimal cost = costRepository.totalCost();
+        BigDecimal recordedCost = costRepository.totalCost();
+        BigDecimal operatingCost = costRepository.totalCostByTypes(OPERATING_EXPENSE_TYPES);
         BigDecimal payroll = payrollCost();
         BigDecimal capturedPayment = paymentRepository.totalAmountByPaymentStatus(PaymentStatus.CAPTURED);
         BigDecimal expectedReceivable = revenue.multiply(BigDecimal.valueOf(0.35)).setScale(2, RoundingMode.HALF_UP);
@@ -87,10 +100,9 @@ public class MarketCapitalService {
                 .setScale(2, RoundingMode.HALF_UP);
         BigDecimal reserveBalance = costRepository.totalCostByTypes(RESERVE_COST_TYPES);
         BigDecimal outstandingPayables = costRepository.totalCostByTypes(PAYABLE_COST_TYPES);
-        BigDecimal netProfit = revenue.subtract(cost).subtract(payroll);
-        BigDecimal availableCash = SYNTHETIC_OPENING_CASH.add(revenue).subtract(cost).subtract(payroll)
-                .subtract(pendingSettlement);
-        BigDecimal workingCapital = availableCash.add(expectedReceivable).subtract(pendingSettlement);
+        BigDecimal netProfit = revenue.subtract(operatingCost);
+        BigDecimal availableCash = SYNTHETIC_OPENING_CASH.add(revenue).subtract(operatingCost);
+        BigDecimal workingCapital = availableCash.add(expectedReceivable);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("availableCash", availableCash);
         result.put("expectedReceivable", expectedReceivable);
@@ -105,7 +117,9 @@ public class MarketCapitalService {
         result.put("outstandingPayables", outstandingPayables);
         result.put("gmv", orderRepository.totalGmv());
         result.put("recognizedRevenue", revenue);
-        result.put("totalExpense", cost);
+        result.put("totalExpense", operatingCost);
+        result.put("totalRecordedCost", recordedCost);
+        result.put("accountingBasis", "MARKET_OPERATING_PNL_WITH_PASS_THROUGH_DISCLOSED_SEPARATELY");
         result.put("currency", "SYNTHETIC_KRW");
         return ordered(result);
     }
